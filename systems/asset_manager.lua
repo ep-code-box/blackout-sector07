@@ -11,12 +11,13 @@ local sub_dirs = {"", "ui/", "face/", "tile/", "map/", "item/", "npc/", "monster
 -- 특정 파일이 어느 하위 디렉토리에 있는지 실제 경로를 반환
 function AssetManager.resolvePath(path)
     if not path then return nil end
+    
+    -- 1. 이미 정확한 경로인 경우
     if love.filesystem.getInfo(path) then return path end
     
-    -- 파일명만 추출 (예: "assets/images/sector_07_S.png" -> "sector_07_S.png")
+    -- 2. "assets/images/" 로 시작하지 않는 경우에만 접두사 시도
     local filename = path:match("([^/]+)$") or path
     
-    -- 하위 디렉토리 전수 조사
     for _, dir in ipairs(sub_dirs) do
         local smart_path = "assets/images/" .. dir .. filename
         if love.filesystem.getInfo(smart_path) then
@@ -24,7 +25,12 @@ function AssetManager.resolvePath(path)
         end
     end
     
-    -- 그래도 없으면 원본 경로 반환
+    -- 3. 경로가 "assets/images/"를 포함하고 있으나 파일만 찾으려는 경우 대비
+    if not path:find("assets/images/") then
+        local full_path = "assets/images/" .. path
+        if love.filesystem.getInfo(full_path) then return full_path end
+    end
+
     return path
 end
 
