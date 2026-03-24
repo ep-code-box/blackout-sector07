@@ -27,6 +27,25 @@ UI.color = {
     text_dim = {0.5, 0.6, 0.7}
 }
 
+-- [추가] 중앙 집중식 레이아웃 상수 (하드코딩 방지)
+UI.layout = {
+    dialogue = {
+        x = 240, y = 520, w = 800, h = 160,
+        padding = 40,
+        portrait_scale = 300,
+        portrait_y = 450,
+        portrait_left_x = 150,
+        portrait_right_x = 1130,
+        typewriter_speed = 0.03,
+        continue_blink_speed = 4
+    },
+    choice = {
+        x = 440, y = 200, w = 400, h = 40,
+        gap = 50
+    },
+    panel_header_h = 25
+}
+
 -- [고급] 윈도우 드로잉 (중앙 정렬 및 비율 기반)
 function UI.drawWindow(rx, ry, rw, rh, title, color)
     local x = UI.relX(rx) - UI.relW(rw)/2

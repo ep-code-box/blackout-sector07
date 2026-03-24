@@ -1,8 +1,13 @@
--- --test 인자 감지 시 테스트 러너로 분기
+-- --test 인자 감지 시 테스트 러너로 분기, --e2e 감지 시 결정론적 모드
+local is_e2e = false
 for _, v in ipairs(arg or {}) do
     if v == "--test" then
         require("test_runner")
         return
+    elseif v == "--e2e" then
+        is_e2e = true
+        math.randomseed(42) -- 결정론적 전투 및 맵 생성 보장
+        print("E2E_HOOK: TEST_MODE_ACTIVE")
     end
 end
 
@@ -35,24 +40,40 @@ local main_canvas
 
 love.window.setMode(1280, 720, {resizable=false, vsync=true})
 
+-- [E2E] 웹 브라우저 콘솔로 상태를 알리기 위한 훅 함수
+local function triggerHook(msg)
+    if is_e2e then print("E2E_HOOK: " .. msg) end
+end
+
 function love.load()
+    if not is_e2e then math.randomseed(os.time()) end
+    
     love.graphics.setDefaultFilter("linear", "linear")
     main_canvas = love.graphics.newCanvas(1280, 720)
     
-    DBManager.init()
+    -- E2E 모드일 경우 인메모리 DB를 사용하여 기존 세이브 보호
+    if is_e2e then
+        DBManager.init(":memory:")
+    else
+        DBManager.init()
+    end
+    
     i18n.setLanguage("ko") 
     UI.load()
     StatusOverlay.load()
     ShaderManager.load()
     
     -- 세이브 로드 시도 (실패 시 타이틀에서 새 게임 유도)
-    if not SaveManager.load() then
+    if not is_e2e and not SaveManager.load() then
+        Roster.init()
+    elseif is_e2e then
         Roster.init()
     end
     
     -- 초기 상태 로드만 수행 (BGM 겹침 방지)
     if states[current_state] and states[current_state].load then
         states[current_state].load()
+        triggerHook("STATE_" .. current_state:upper())
     end
 end
 
@@ -89,14 +110,17 @@ function love.draw()
     UI.drawScanlines(1280, 720)
     love.graphics.setCanvas()
 
+    -- 화면 흔들림(Shake) 적용
+    local sx, sy = FXManager.getShakeOffset()
     love.graphics.setColor(1, 1, 1, 1)
     ShaderManager.apply()
-    love.graphics.draw(main_canvas, 0, 0)
+    love.graphics.draw(main_canvas, sx, sy)
     ShaderManager.clear()
 end
 
 -- 전투 결과 처리
 local function handleCombatResult(next_state, result, enemy_id)
+    triggerHook("COMBAT_RESULT_" .. result:upper())
     if next_state == "explore" and result == "win" then
         states.explore.clearEnemy()
         for _, q in ipairs(DBManager.getAllQuests()) do
@@ -119,11 +143,13 @@ function love.keypressed(key)
             StoryManager.is_game_cleared = false
             current_state = "title"
             if states.title.load then states.title.load() end
+            triggerHook("STATE_TITLE")
         end
         return
     end
 
     if StoryManager.is_active then
+        triggerHook("STORY_KEYPRESSED")
         if StoryManager.keypressed(key) then return end
     end
 
@@ -151,11 +177,14 @@ function love.keypressed(key)
                     elseif current_state == "explore" then
                         -- Hub에서 진입할 때만 맵 초기화 (Combat에서 올 때는 유지)
                         local force_reset = (prev_state == "hub")
+                        -- E2E 모드일 땐 항상 동일한 맵 구조를 위해 seed 고정 보장
+                        if is_e2e and force_reset then math.randomseed(42) end
                         states[current_state].load(force_reset)
                     else
                         states[current_state].load()
                     end
                 end
+                triggerHook("STATE_" .. current_state:upper())
             end
 
             -- 특별 처리: 전투 종료 시 (승리/패배 처리)

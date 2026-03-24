@@ -15,6 +15,15 @@ function SkillHandler.execute(caster, target_primary, skill_name, skills_db, par
     if caster.sp < (skill.sp or 0) then return "NOT ENOUGH SP!" end
     caster.sp = caster.sp - (skill.sp or 0)
 
+    -- [추가] 공통 시각 효과 트리거
+    if skill.fx_type == "hack" or skill.fx_type == "glitch" then
+        ShaderManager.trigger(0.5) -- 글리치 강도
+    elseif skill.fx_type == "impact" then
+        FXManager.shake(20, 0.4)
+    elseif skill.fx_type == "buff" or skill.fx_type == "heal" then
+        FXManager.flash({skill.fx_color[1], skill.fx_color[2], skill.fx_color[3], 0.2}, 0.4)
+    end
+
     -- 2. 타입별 처리
     if skill.type == "attack" or skill.type == "attack_multi" then
         return SkillHandler.handleAttack(caster, target_primary, skill, skill_name, party_actors, enemy_actor, msg, StateCombat)
@@ -70,10 +79,14 @@ function SkillHandler.handleAttack(caster, target, skill, skill_name, party_acto
         msg = msg .. " [SP REFUNDED]"
     end
 
-    if StateCombat and StateCombat.shake then
-        StateCombat.shake(is_crit and 22 or 14, 0.35)
+    -- 타격 효과 보강
+    if is_crit then 
+        FXManager.shake(25, 0.5)
+        ShaderManager.trigger(0.8) 
+    else
+        FXManager.shake(12, 0.2)
     end
-    if is_crit then ShaderManager.trigger(0.8) end
+    
     FXManager.spawnText(400, 180, tostring(total_dmg), is_crit and {1,0.8,0} or {1,0.2,0.2}, is_crit)
     return msg .. " (" .. total_dmg .. " DMG)"
 end

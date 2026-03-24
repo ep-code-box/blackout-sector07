@@ -85,17 +85,23 @@ function StateTitle.keypressed(key)
         if choice == "menu_new_game" then
             -- 1. DB 초기화 (기존 데이터 삭제)
             local DB = require("systems.db_manager")
-            DB.query("DROP TABLE IF EXISTS mercenaries;")
-            DB.query("DROP TABLE IF EXISTS save_state;")
-            DB.init() -- 테이블 재생성 (init 내부 로직에 따라)
-            
-            -- 2. 시스템 초기화
-            local Roster = require("systems.roster")
             local StoryManager = require("systems.story_manager")
-            local DB = require("systems.db_manager")
+            
+            -- 웹/E2E 환경에서는 파일 생성 이슈 방지를 위해 DROP TABLE을 우회하거나 단순화
+            if love.system.getOS() ~= "Web" then
+                DB.query("DELETE FROM mercenaries;")
+                DB.query("DELETE FROM save_state;")
+                DB.seedMercs() -- 삭제 후 기본 용병만 다시 시딩
+            end
+            
+            -- 2. 시스템 상태 리셋
+            local Roster = require("systems.roster")
             Roster.init()
-            DB.resetQuests()
-            StoryManager.triggerChapter("initial")
+            if love.system.getOS() ~= "Web" then
+                DB.resetQuests()
+            end
+            StoryManager.current_chapter = 1 -- 챕터 기록 초기화
+            
             return "hub"
             
         elseif choice == "menu_load_game" then

@@ -1,7 +1,7 @@
--- 사이버펑크 성장 & 특성 시스템 (Tier-2 Specialization Full Set V2)
+-- 사이버펑크 성장 & 특성 시스템 (Tier-2 Specialization Full Set V2 + Dual Synergies)
 local Evolution = {}
 
--- 1. 전직(Specialization) 정의 — 전 직업군 tier_2 완성
+-- 1. 전직(Specialization) 정의
 Evolution.classes = {
     ["class_solo"] = {
         tier_2 = {
@@ -75,7 +75,7 @@ Evolution.classes = {
     }
 }
 
--- 2. 스탯 임계점 기반 마스터리 (Stat Mastery)
+-- 2. 단일 스탯 임계점 기반 마스터리 (Stat Mastery)
 Evolution.perks = {
     str = {
         [20] = { id = "perk_str_20", name = "키네틱 충격파", desc = "물리 공격 명중 시 적을 확률적으로 기절시킵니다." },
@@ -100,6 +100,25 @@ Evolution.perks = {
     edg = {
         [20] = { id = "perk_edg_20", name = "위험한 도박",  desc = "HP가 홀수일 때 크리티컬 확률이 20% 증가합니다." },
         [40] = { id = "perk_edg_40", name = "잭팟",         desc = "전투 승리 시 크레딧 획득량이 대폭 증가합니다." }
+    }
+}
+
+-- 3. 이중 스탯 시너지 (Dual Synergies)
+Evolution.synergies = {
+    {
+        id = "syn_str_dex", name = "전술적 반사신경",
+        req = {str=25, dex=25},
+        desc = "물리 공격 시 명중률이 100%로 고정되며, 최소 대미지가 보장됩니다."
+    },
+    {
+        id = "syn_int_edg", name = "신경망 가속",
+        req = {int=25, edg=25},
+        desc = "해킹(마법) 스킬 사용 시 20% 확률로 쿨타임 없이 즉시 재시전합니다."
+    },
+    {
+        id = "syn_agi_dex", name = "초신성",
+        req = {agi=25, dex=25},
+        desc = "회피 성공 시 즉시 반격을 가합니다. (통상 공격력의 50%)"
     }
 }
 

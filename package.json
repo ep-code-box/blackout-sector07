@@ -1,0 +1,31 @@
+{
+  "name": "auto",
+  "version": "1.0.0",
+  "description": "본 프로젝트는 **사이버펑크 테마의 1인칭 던전 크롤러(DRPG)** 개발을 위한 고성능 아트 생성 파이프라인과 게임 엔진 프로토타입을 통합한 환경입니다.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "build:web": "./scripts/build_web.sh",
+    "serve:web": "python3 scripts/serve_secure.py",
+    "test:e2e": "playwright test",
+    "test:e2e:debug": "playwright test --headed"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ep-code-box/auto.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/ep-code-box/auto/issues"
+  },
+  "homepage": "https://github.com/ep-code-box/auto#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.58.2"
+  }
+}

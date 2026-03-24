@@ -9,9 +9,14 @@ local function esc(s)
     return tostring(s or ""):gsub("'", "''")
 end
 
-function DBManager.init()
-    local db_path = "client/game_data.db"
-    if not love.filesystem.getRealDirectory(db_path) then
+-- 메모리 DB 여부 플래그
+local is_memory_db = false
+
+function DBManager.init(custom_path)
+    local db_path = custom_path or "client/game_data.db"
+    if custom_path == ":memory:" then
+        is_memory_db = true
+    elseif not love.filesystem.getRealDirectory(db_path) then
         db_path = "game_data.db"
     end
 
@@ -109,7 +114,11 @@ function DBManager.init()
             portrait TEXT DEFAULT '',
             side TEXT DEFAULT 'left',
             text TEXT,
-            is_choice_node INTEGER DEFAULT 0
+            is_choice_node INTEGER DEFAULT 0,
+            shake INTEGER DEFAULT 0,
+            shake_intensity INTEGER DEFAULT 10,
+            flash INTEGER DEFAULT 0,
+            flash_color_json TEXT DEFAULT '[1,1,1,1]'
         );
     ]])
     DBManager.query([[
@@ -250,16 +259,22 @@ end
 -- ── 쿼리 실행 ─────────────────────────────────────────────────────────────────
 
 function DBManager.query(sql)
-    local db_path = "client/game_data.db"
-    if not love.filesystem.getRealDirectory(db_path) then db_path = "game_data.db" end
-
     if sqlite3 and DBManager.db then
         local results = {}
         for row in DBManager.db:nrows(sql) do table.insert(results, row) end
         return results
     else
+        -- Web/Emscripten 환경이거나 메모리 DB 테스트 중일 때 io.popen 우회
+        if love.system.getOS() == "Web" or is_memory_db then
+            print("⚠️ [Web/Test] DB Query Bypassed: " .. sql:sub(1, 30))
+            return {}
+        end
+
+        local db_path = "client/game_data.db"
+        if not love.filesystem.getRealDirectory(db_path) then db_path = "game_data.db" end
         local cmd = string.format("sqlite3 %s -json \"%s\"", db_path, sql:gsub('"', '\\"'))
         local handle = io.popen(cmd)
+        if not handle then return {} end
         local result_str = handle:read("*a")
         handle:close()
         if result_str and result_str ~= "" then
@@ -274,7 +289,18 @@ end
 
 function DBManager.getEnemyScaled(id, level)
     local res = DBManager.query(string.format("SELECT * FROM enemies WHERE id='%s' LIMIT 1", esc(id)))
-    if not res or #res == 0 then return nil end
+    if not res or #res == 0 then 
+        -- Fallback for Web/Test mode where DB might be empty
+        local src = require("data.data_enemy_seed")
+        for k, v in pairs(src) do
+            if v.id == id or k == id then
+                res = {v}
+                break
+            end
+        end
+        if not res or #res == 0 then return nil end
+    end
+    
     local base = res[1]
     local lv = math.max(1, level or 1)
 
@@ -294,10 +320,15 @@ function DBManager.getEnemyScaled(id, level)
 
     -- skills_csv → skills 배열
     scaled.skills = {}
-    for s in (base.skills_csv or ""):gmatch("([^,]+)") do
-        table.insert(scaled.skills, s)
+    local skills_str = base.skills_csv
+    if not skills_str and base.skills then
+        scaled.skills = base.skills
+    else
+        for s in (skills_str or ""):gmatch("([^,]+)") do
+            table.insert(scaled.skills, s)
+        end
     end
-    scaled.is_boss = base.is_boss == 1
+    scaled.is_boss = base.is_boss == 1 or base.is_boss == true
 
     return scaled
 end
@@ -308,6 +339,12 @@ local _skills_cache = nil
 function DBManager.getSkillDict()
     if _skills_cache then return _skills_cache end
     local rows = DBManager.query("SELECT * FROM skills")
+    
+    -- Fallback for Web/Test mode
+    if not rows or #rows == 0 then
+        return require("data.data_skills_seed")
+    end
+    
     _skills_cache = {}
     for _, row in ipairs(rows or {}) do
         _skills_cache[row.id] = {
@@ -335,6 +372,13 @@ local _items_cache = nil
 function DBManager.getAllItems()
     if _items_cache then return _items_cache end
     local rows = DBManager.query("SELECT * FROM items")
+    
+    -- Fallback
+    if not rows or #rows == 0 then
+        _items_cache = require("data.data_items_seed")
+        return _items_cache
+    end
+    
     _items_cache = {}
     for _, row in ipairs(rows or {}) do
         local stats = {}
@@ -361,6 +405,8 @@ end
 
 function DBManager.getAllQuests()
     local rows = DBManager.query("SELECT * FROM quests")
+    if not rows or #rows == 0 then return require("data.data_quests_seed") end
+    
     local result = {}
     for _, row in ipairs(rows or {}) do
         table.insert(result, {
@@ -385,6 +431,18 @@ end
 
 function DBManager.getAllMercs()
     local rows = DBManager.query("SELECT * FROM mercenaries")
+    if not rows or #rows == 0 then
+        -- Fallback
+        local src = require("data.data_mercs_seed")
+        local res = {}
+        for i, m in ipairs(src) do
+            m.is_unlocked = (i == 1)
+            m.formation = "front"
+            table.insert(res, m)
+        end
+        return res
+    end
+    
     local result = {}
     for _, row in ipairs(rows or {}) do
         local m = {}
@@ -422,8 +480,13 @@ function DBManager.seedStoryChapters()
         ))
         for _, ev in ipairs(ch.events or {}) do
             DBManager.query(string.format(
-                "INSERT INTO story_events (chapter_id, event_order, speaker, portrait, side, text, is_choice_node) VALUES (%d,%d,'%s','%s','%s','%s',%d)",
-                ch.id, ev.order, esc(ev.speaker), esc(ev.portrait or ""), esc(ev.side or "left"), esc(ev.text), ev.is_choice_node and 1 or 0
+                [[INSERT INTO story_events 
+                  (chapter_id, event_order, speaker, portrait, side, text, is_choice_node, shake, shake_intensity, flash, flash_color_json) 
+                  VALUES (%d,%d,'%s','%s','%s','%s',%d,%d,%d,%d,'%s')]],
+                ch.id, ev.order, esc(ev.speaker), esc(ev.portrait or ""), esc(ev.side or "left"), esc(ev.text), 
+                ev.is_choice_node and 1 or 0,
+                ev.shake and 1 or 0, ev.shake_intensity or 10,
+                ev.flash and 1 or 0, esc(ev.flash_color_json or "[1,1,1,1]")
             ))
             if ev.is_choice_node then
                 -- last_insert_rowid()는 Shell-Mode에서 동작하지 않으므로 직접 조회
@@ -460,21 +523,44 @@ function DBManager.getChapterByTrigger(trigger_type, trigger_id)
             esc(trigger_type)
         ))
     end
+    
+    -- Fallback for Web
+    if not rows or #rows == 0 then
+        local src = require("data.data_story_seed")
+        for _, ch in ipairs(src.chapters) do
+            if ch.trigger_type == trigger_type and (not trigger_id or trigger_id == "" or ch.trigger_id == trigger_id) then
+                return ch
+            end
+        end
+    end
+    
     return rows and rows[1] or nil
 end
 
 function DBManager.getChapterEvents(chapter_id)
-    return DBManager.query(string.format(
+    local rows = DBManager.query(string.format(
         "SELECT * FROM story_events WHERE chapter_id=%d ORDER BY event_order ASC",
         chapter_id
-    )) or {}
+    ))
+    
+    if not rows or #rows == 0 then
+        local src = require("data.data_story_seed")
+        for _, ch in ipairs(src.chapters) do
+            if ch.id == chapter_id then
+                return ch.events or {}
+            end
+        end
+        return {}
+    end
+    return rows
 end
 
 function DBManager.getChoicesForEvent(event_id)
     local rows = DBManager.query(string.format(
         "SELECT * FROM story_choices WHERE event_id=%d ORDER BY choice_order ASC",
         event_id
-    )) or {}
+    ))
+    if not rows or #rows == 0 then return {} end
     local json = require("lib.json")
     for _, row in ipairs(rows) do
         local ok, decoded = pcall(json.decode, row.actions_json or "[]")

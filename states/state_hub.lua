@@ -29,6 +29,7 @@ local menu_keys = {
 
 function StateHub.load()
     local DBManager = require("systems.db_manager")
+    local StoryManager = require("systems.story_manager")
     party     = Roster.active_party
     items_db  = DBManager.getAllItems()
     quests_db = DBManager.getAllQuests()
@@ -44,6 +45,11 @@ function StateHub.load()
     
     current_sub = nil
     AudioManager.playBGM("bgm_hub", "assets/audio/bgm/bgm_hub.wav")
+
+    -- [추가] 신규 게임일 경우 프롤로그 트리거
+    if StoryManager.current_chapter == 1 and not StoryManager.is_active then
+        StoryManager.triggerChapter("initial")
+    end
 end
 
 function StateHub.draw()

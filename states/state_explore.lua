@@ -38,22 +38,43 @@ local function getEnemyPool()
 end
 
 function StateExplore.load(force_reset)
-    if not map or #map == 0 or force_reset then
-        map = DungeonGen.generate(MAP_WIDTH, MAP_HEIGHT)
-        player.x, player.y = 2, 2
-        player.facing = "north"
+    -- E2E 체크 (인자 파싱)
+    local is_e2e = false
+    for _, v in ipairs(arg or {}) do if v == "--e2e" then is_e2e = true break end end
 
-        -- 보스 퀘스트 배치
+    if not map or #map == 0 or force_reset then
+        if is_e2e then
+            -- 1. E2E 고정 맵 로드
+            local test_map_data = require("data.data_map_test")
+            map = {}
+            for y, row in ipairs(test_map_data.layout) do
+                map[y] = {}
+                for x, val in ipairs(row) do map[y][x] = val end
+            end
+            player.x, player.y = 2, 3 -- 테스트 시작점 고정 (Lua 인덱스 주의)
+            player.facing = "north"
+            print("E2E_HOOK: TEST_MAP_LOADED")
+        else
+            -- 2. 일반 랜덤 맵 생성
+            map = DungeonGen.generate(MAP_WIDTH, MAP_HEIGHT)
+            player.x, player.y = 2, 2
+            player.facing = "north"
+        end
+
+        -- 보스 퀘스트 배치 (E2E일 땐 강제 좌표 지정)
         local DBManager = require("systems.db_manager")
         for _, q in ipairs(DBManager.getAllQuests()) do
             if not q.completed and (q.required_boss_id or "") ~= "" then
                 local bid = q.required_boss_id
                 if bid == bid:lower() then
                     local tx, ty = q.target_coords.x, q.target_coords.y
+                    -- E2E 전용 보스 좌표 오버라이드
+                    if is_e2e and bid == "drone_security" then tx, ty = 3, 2 end
                     if map[ty] and map[ty][tx] ~= 0 then map[ty][tx] = 2 end
                 end
             end
         end
+        
         print("✅ New Dungeon Generated")
     end
 

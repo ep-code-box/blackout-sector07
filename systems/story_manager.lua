@@ -52,6 +52,11 @@ function StoryManager.triggerChapter(trigger_type, trigger_id)
             portrait = ev.portrait,
             side     = ev.side,
             text     = ev.text,
+            -- 추가 연출 데이터 (DB 스키마 확장이 필요할 수 있으나, 일단 text에 메타데이터가 있거나 seed에서 온다고 가정)
+            shake    = ev.shake == 1,
+            flash    = ev.flash == 1,
+            shake_intensity = ev.shake_intensity,
+            flash_color = ev.flash_color_json and json.decode(ev.flash_color_json) or {1,1,1,1}
         }
         if ev.is_choice_node == 1 then
             local raw_choices = DB.getChoicesForEvent(ev.id)
@@ -82,9 +87,8 @@ function StoryManager.next()
             StoryManager.choices = next_talk.choices
             StoryManager.selected_choice = 1
             StoryManager.current_talk = next_talk
-            -- 선택지일 때는 typewriter를 쓰지 않거나 즉시 완료 처리
         else
-            UIDialogue.reset(L(next_talk.text))
+            UIDialogue.reset(next_talk) -- 텍스트 대신 전체 데이터 전달
             StoryManager.current_talk = next_talk
         end
     else
@@ -110,12 +114,20 @@ function StoryManager.draw()
         StoryManager.current_talk.side
     )
     
-    -- 2. 선택지 렌더링
+    -- 2. 선택지 렌더링 (상수 참조 적용)
     if StoryManager.choices then
         local UI = require("ui.theme")
-        local start_y = 200
+        local cfg = UI.layout.choice
         for i, choice in ipairs(StoryManager.choices) do
-            UI.drawButton(200, start_y + (i-1)*45, 400, 40, L(choice.text), StoryManager.selected_choice == i, UI.color.accent)
+            UI.drawButton(
+                cfg.x, 
+                cfg.y + (i-1) * cfg.gap, 
+                cfg.w, 
+                cfg.h, 
+                L(choice.text), 
+                StoryManager.selected_choice == i, 
+                UI.color.accent
+            )
         end
     end
 end
