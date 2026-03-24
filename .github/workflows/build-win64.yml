@@ -1,0 +1,52 @@
+name: Build Win64
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Package .love
+        run: python scripts/package_love.py
+
+      - name: Download Love2D Win64
+        run: |
+          curl -L https://github.com/love2d/love/releases/download/11.5/love-11.5-win64.zip -o love-win64.zip
+          unzip love-win64.zip -d love-win64-tmp
+
+      - name: Fuse .exe
+        run: |
+          LOVE_DIR=$(find love-win64-tmp -mindepth 1 -maxdepth 1 -type d | head -1)
+          mkdir -p make/build/sector07-win64
+          cat "$LOVE_DIR/love.exe" make/build/sector07.love > make/build/sector07-win64/sector07.exe
+          cp "$LOVE_DIR"/*.dll make/build/sector07-win64/
+          chmod +x make/build/sector07-win64/sector07.exe
+
+      - name: Zip release
+        run: |
+          cd make/build
+          zip -r sector07-win64.zip sector07-win64/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest Build
+          files: make/build/sector07-win64.zip
+          generate_release_notes: false
+          fail_on_unmatched_files: true

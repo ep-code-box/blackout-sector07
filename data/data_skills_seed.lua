@@ -1,0 +1,30 @@
+-- 스킬 시드 데이터 (DB 초기 삽입용)
+local skills = {
+    ["skill_attack"]  = { sp = 0,  type = "attack",       power = 1.0, desc = "표준 무기로 적을 공격합니다." },
+    ["skill_defend"]  = { sp = 0,  type = "buff", effect = "shield", duration = 1, desc = "방어 태세를 취하여 이번 턴에 받는 대미지를 줄입니다." },
+    ["skill_punch"]      = { sp = 0,  hp_cost = 0.05, type = "attack", power = 1.8, desc = "체력의 5%를 소모하여 강력한 물리 타격을 가합니다." },
+    ["skill_adrenaline"] = { sp = 20, type = "buff",   effect = "atk_up",  duration = 3, desc = "신진대사를 가속하여 3턴간 공격력을 50% 증폭합니다." },
+    ["skill_taunt"]      = { sp = 15, type = "buff",   effect = "taunt",   duration = 3, desc = "적의 시선을 집중시키고 방어력을 대폭 높입니다." },
+    ["skill_slice"]       = { sp = 0,  type = "attack", power = 0.8, hits = 2, desc = "초고속으로 적을 두 번 베어 넘깁니다." },
+    ["skill_sandevistan"] = { sp = 30, type = "buff",   effect = "multi_turn", duration = 1, desc = "순간적으로 시간을 느리게 하여 즉시 1턴을 더 얻습니다." },
+    ["skill_suppress"] = { sp = 10, type = "attack",       power = 1.1, desc = "정밀한 사격으로 적의 약점을 노립니다. 20% 확률로 방어력 무시." },
+    ["skill_shotgun"]  = { sp = 15, type = "attack_multi", power = 0.7, hits = 3, desc = "넓은 범위에 산탄을 발사하여 다단 히트를 입힙니다." },
+    ["skill_synapse"]  = { sp = 15, type = "attack", power = 1.5, is_magic = true, bonus_on_status = "stun", desc = "적의 신경망을 태웁니다. 기절 상태인 적에게 대미지 2배." },
+    ["skill_shutdown"] = { sp = 25, type = "debuff", effect = "stun",   duration = 1, desc = "적의 운영체제를 강제 재부팅하여 1턴간 행동 불능으로 만듭니다." },
+    ["skill_nano"] = { sp = 10, type = "heal", power = 2.0, desc = "치료용 나노봇을 살포하여 아군을 회복합니다." },
+    ["skill_stim"] = { sp = 20, type = "buff", effect = "stat_up", duration = 5, desc = "금지된 약물을 투여하여 아군의 모든 능력치를 상승시킵니다." },
+    ["skill_target_mark"]   = { sp = 0,  type = "debuff", effect = "marked",   duration = 3, desc = "표적을 지정하여 받는 대미지를 50% 증폭시킵니다." },
+    ["skill_suppress_all"]  = { sp = 25, type = "attack_multi", power = 0.6, hits = 1, effect = "agi_down", duration = 2, desc = "아군 전체를 제압 사격하여 회피율을 급감시킵니다." },
+    ["skill_berserker_rage"] = { sp = 30, type = "attack_multi", power = 1.8, hits = 1, desc = "격분한 광역 타격." },
+    ["skill_sentinel_wall"]  = { sp = 20, type = "buff", effect = "taunt", duration = 4, desc = "방어 태세를 극한으로 올려 아군 어그로를 집중시킵니다." },
+    ["skill_blade_vortex"] = { sp = 30, type = "attack", power = 0.9, hits = 3, desc = "극한의 속도로 3연속 베기를 시전합니다." },
+    ["skill_shadow_kill"]  = { sp = 35, type = "attack", power = 3.5, desc = "은신 후 집약된 일격." },
+    ["skill_armor_pierce"] = { sp = 20, type = "attack", power = 1.8, is_penetrating = true, desc = "적의 방어력을 완전히 무시하는 정밀 사격입니다." },
+    ["skill_drone_swarm"]  = { sp = 35, type = "attack_multi", power = 0.5, hits = 4, desc = "4기의 전투 드론을 소환합니다." },
+    ["skill_mass_shutdown"] = { sp = 35, type = "debuff", effect = "stun", duration = 2, desc = "적의 모든 시스템을 동시에 강제 종료합니다." },
+    ["skill_brain_fry"]     = { sp = 45, type = "attack", power = 4.5, is_magic = true, desc = "신경망을 극한으로 과열시켜 막대한 순수 해킹 대미지를 입힙니다." },
+    ["skill_emergency_revive"] = { sp = 50, type = "heal", power = 0, revive = true, desc = "전사한 아군을 최대 체력 30%로 즉시 부활시킵니다." },
+    ["skill_overclock"] = { sp = 35, type = "buff", effect = "atk_up", duration = 5, target = "all", desc = "아군 전체의 사이버웨어를 과부하 모드로 전환합니다." },
+}
+
+return skills
