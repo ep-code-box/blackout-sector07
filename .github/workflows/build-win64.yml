@@ -1,8 +1,10 @@
-name: Build Win64
+name: Build and Release Win64
 
 on:
   push:
     branches: [main]
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 permissions:
@@ -16,37 +18,45 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+      - name: Setup Build Environment
+        run: mkdir -p build_assets/win64
 
-      - name: Package .love
-        run: python scripts/package_love.py
-
-      - name: Download Love2D Win64
+      - name: Package .love file
         run: |
-          curl -L https://github.com/love2d/love/releases/download/11.5/love-11.5-win64.zip -o love-win64.zip
-          unzip love-win64.zip -d love-win64-tmp
+          # 불필요한 파일 제외하고 게임 소스 압축
+          zip -r build_assets/sector07.love . -x "*.git*" "*.github*" "docs/*" "make/*" "scripts/*" ".gitignore" "README.md" "test_runner.lua" "test_assets/*"
 
-      - name: Fuse .exe
+      - name: Download Latest Love2D (Win64)
         run: |
-          LOVE_DIR=$(find love-win64-tmp -mindepth 1 -maxdepth 1 -type d | head -1)
-          mkdir -p make/build/sector07-win64
-          cat "$LOVE_DIR/love.exe" make/build/sector07.love > make/build/sector07-win64/sector07.exe
-          cp "$LOVE_DIR"/*.dll make/build/sector07-win64/
-          chmod +x make/build/sector07-win64/sector07.exe
+          # GitHub API로 최신 버전 태그 가져오기
+          LATEST_TAG=$(curl -s https://api.github.com/repos/love2d/love/releases/latest | jq -r .tag_name)
+          URL="https://github.com/love2d/love/releases/download/${LATEST_TAG}/love-${LATEST_TAG}-win64.zip"
+          echo "Downloading Love2D ${LATEST_TAG} from ${URL}"
+          curl -L -o love-win64.zip "$URL"
+          unzip love-win64.zip -d love-dist
 
-      - name: Zip release
+      - name: Fuse Executable (.exe)
         run: |
-          cd make/build
-          zip -r sector07-win64.zip sector07-win64/
+          LOVE_DIR=$(find love-dist -mindepth 1 -maxdepth 1 -type d | head -1)
+          # 엔진(love.exe)과 게임(.love) 결합
+          cat "$LOVE_DIR/love.exe" build_assets/sector07.love > build_assets/win64/sector07.exe
+          # 실행에 필요한 DLL 및 라이선스 파일 복사
+          cp "$LOVE_DIR"/*.dll build_assets/win64/
+          cp "$LOVE_DIR"/license.txt build_assets/win64/
+          chmod +x build_assets/win64/sector07.exe
 
-      - name: Create GitHub Release
+      - name: Zip for Release
+        run: |
+          cd build_assets
+          zip -r sector07-win64.zip win64/
+
+      - name: Create/Update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest
-          name: Latest Build
-          files: make/build/sector07-win64.zip
-          generate_release_notes: false
-          fail_on_unmatched_files: true
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'latest' }}
+          name: ${{ github.ref_type == 'tag' && github.ref_name || 'Latest Automated Build' }}
+          files: |
+            build_assets/sector07-win64.zip
+            build_assets/sector07.love
+          generate_release_notes: true
+          prerelease: ${{ github.ref_type != 'tag' }}

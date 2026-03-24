@@ -27,3 +27,4 @@ Thumbs.db
 make/build/
 make/android_build/
 
+game_data.db
