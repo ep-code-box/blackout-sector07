@@ -11,44 +11,50 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  build-core:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Build Environment
-        run: mkdir -p build_assets/win64
+      - uses: actions/checkout@v4
 
       - name: Package .love file
-        run: |
-          # 불필요한 파일 제외하고 게임 소스 압축
-          zip -r build_assets/sector07.love . -x "*.git*" "*.github*" "docs/*" "make/*" "scripts/*" ".gitignore" "README.md" "test_runner.lua" "test_assets/*"
+        uses: love-actions/love-actions-core@v1
+        with:
+          build-list: >-
+            ./assets/
+            ./data/
+            ./lib/
+            ./states/
+            ./systems/
+            ./ui/
+            ./conf.lua
+            ./main.lua
 
-      - name: Download Latest Love2D (Win64)
-        run: |
-          # GitHub API로 최신 버전 태그 가져오기
-          LATEST_TAG=$(curl -s https://api.github.com/repos/love2d/love/releases/latest | jq -r .tag_name)
-          URL="https://github.com/love2d/love/releases/download/${LATEST_TAG}/love-${LATEST_TAG}-win64.zip"
-          echo "Downloading Love2D ${LATEST_TAG} from ${URL}"
-          curl -L -o love-win64.zip "$URL"
-          unzip love-win64.zip -d love-dist
+      - name: Upload .love artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: core_love_package
+          path: ./game.love
 
-      - name: Fuse Executable (.exe)
-        run: |
-          LOVE_DIR=$(find love-dist -mindepth 1 -maxdepth 1 -type d | head -1)
-          # 엔진(love.exe)과 게임(.love) 결합
-          cat "$LOVE_DIR/love.exe" build_assets/sector07.love > build_assets/win64/sector07.exe
-          # 실행에 필요한 DLL 및 라이선스 파일 복사
-          cp "$LOVE_DIR"/*.dll build_assets/win64/
-          cp "$LOVE_DIR"/license.txt build_assets/win64/
-          chmod +x build_assets/win64/sector07.exe
+  build-windows:
+    runs-on: windows-latest
+    needs: build-core
+    env:
+      OUTPUT_FOLDER: ./build
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Zip for Release
-        run: |
-          cd build_assets
-          zip -r sector07-win64.zip win64/
+      - name: Download .love artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: core_love_package
+
+      - name: Build Windows packages
+        id: build-packages
+        uses: love-actions/love-actions-windows@v2
+        with:
+          love-package: ./game.love
+          product-name: sector07
+          output-folder: ${{ env.OUTPUT_FOLDER }}
 
       - name: Create/Update GitHub Release
         uses: softprops/action-gh-release@v2
@@ -56,7 +62,7 @@ jobs:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'latest' }}
           name: ${{ github.ref_type == 'tag' && github.ref_name || 'Latest Automated Build' }}
           files: |
-            build_assets/sector07-win64.zip
-            build_assets/sector07.love
+            ${{ env.OUTPUT_FOLDER }}/sector07_x64.zip
+            ${{ env.OUTPUT_FOLDER }}/sector07_x86.zip
           generate_release_notes: true
           prerelease: ${{ github.ref_type != 'tag' }}
