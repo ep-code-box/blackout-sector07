@@ -11,51 +11,44 @@ permissions:
   contents: write
 
 jobs:
-  build-core:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Package .love file
-        uses: love-actions/love-actions-core@v1
-        with:
-          build-list: >-
-            ./assets/
-            ./data/
-            ./lib/
-            ./states/
-            ./systems/
-            ./ui/
-            ./conf.lua
-            ./main.lua
-
-      - name: Upload .love artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: core_love_package
-          path: ./game.love
-
   build-windows:
     runs-on: windows-latest
-    needs: build-core
+
     env:
       OUTPUT_FOLDER: ./build
+
     steps:
+      # 1. 코드 체크아웃
       - uses: actions/checkout@v4
 
-      - name: Download .love artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: core_love_package
+      # 2. .love 파일 직접 생성 (가장 중요)
+      - name: Package .love file
+        shell: bash
+        run: |
+          7z a -tzip game.love main.lua conf.lua assets data lib states systems ui
 
+          echo "==== game.love 내부 구조 ===="
+          7z l game.love
+
+          echo "==== main.lua 위치 확인 ===="
+          7z l game.love | grep " main.lua$" || (echo "❌ main.lua NOT at root!" && exit 1)
+
+      # 3. Windows 실행파일 빌드
       - name: Build Windows packages
-        id: build-packages
         uses: love-actions/love-actions-windows@v2
         with:
           love-package: ./game.love
           product-name: sector07
           output-folder: ${{ env.OUTPUT_FOLDER }}
 
+      # 4. 빌드 결과 확인 (디버깅용)
+      - name: List build outputs
+        shell: bash
+        run: |
+          echo "==== build 결과 ===="
+          ls -R ${{ env.OUTPUT_FOLDER }}
+
+      # 5. GitHub Release 생성
       - name: Create/Update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
