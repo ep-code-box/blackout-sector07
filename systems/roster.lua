@@ -1,4 +1,4 @@
--- 파티 편성 매니저 (Narrative Roster System + DB Integrated)
+-- 파티 편성 매니저 (Narrative Roster System + Memory DB version)
 local Roster = {}
 local DB = require("systems.db_manager")
 
@@ -24,23 +24,45 @@ function Roster.init()
     end
 end
 
--- 용병 데이터를 DB에 영구 저장
+-- 용병 데이터를 DB 메모리에 반영 (파일 저장은 SaveManager.save에서 수행)
 function Roster.saveMercToDB(m)
-    local function esc(s) return tostring(s or ""):gsub("'", "''") end
-    local skills_csv = table.concat(m.skills or {}, ",")
-    local sql = string.format(
-        [[INSERT OR REPLACE INTO mercenaries
-          (id, name, class, level, exp, stat_points, skill_points, hp, max_hp, sp, max_sp,
-           str, dex, int, con, agi, edg, skills_csv, sprite, specialization, is_unlocked, formation_slot)
-          VALUES ('%s','%s','%s',%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,'%s','%s','%s',%d,'%s')]],
-        esc(m.id), esc(m.name), esc(m.class),
-        m.level or 1, m.exp or 0, m.stat_points or 0, m.skill_points or 0,
-        m.hp, m.max_hp, m.sp, m.max_sp,
-        m.str, m.dex, m.int, m.con, m.agi, m.edg,
-        esc(skills_csv), esc(m.sprite), esc(m.specialization or ""),
-        m.is_unlocked and 1 or 0, esc(m.formation or "front")
-    )
-    DB.query(sql)
+    -- DBManager.data.mercenaries에서 해당 ID를 찾아 업데이트
+    local found = false
+    for i, row in ipairs(DB.data.mercenaries) do
+        if row.id == m.id then
+            -- 주요 스탯 및 상태 업데이트
+            row.level = m.level or 1
+            row.exp = m.exp or 0
+            row.stat_points = m.stat_points or 0
+            row.skill_points = m.skill_points or 0
+            row.hp = m.hp
+            row.max_hp = m.max_hp
+            row.sp = m.sp
+            row.max_sp = m.max_sp
+            row.str = m.str
+            row.dex = m.dex
+            row.int = m.int
+            row.con = m.con
+            row.agi = m.agi
+            row.edg = m.edg
+            row.skills_csv = table.concat(m.skills or {}, ",")
+            row.specialization = m.specialization or ""
+            row.is_unlocked = m.is_unlocked and 1 or 0
+            row.formation_slot = m.formation or "front"
+            found = true
+            break
+        end
+    end
+    
+    -- 만약 리스트에 없으면 (신규 용병 등) 추가
+    if not found then
+        local row = {}
+        for k, v in pairs(m) do row[k] = v end
+        row.skills_csv = table.concat(m.skills or {}, ",")
+        row.is_unlocked = m.is_unlocked and 1 or 0
+        row.formation_slot = m.formation or "front"
+        table.insert(DB.data.mercenaries, row)
+    end
 end
 
 -- 특정 용병 해금 함수 (스토리에서 호출)

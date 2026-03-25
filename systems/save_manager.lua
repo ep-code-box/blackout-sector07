@@ -1,4 +1,4 @@
--- 세이브/로드 매니저 (SQLite DB Integrated)
+-- 세이브/로드 매니저 (Disk-based Persistence V1)
 local SaveManager = {}
 local DB = require("systems.db_manager")
 local Roster = require("systems.roster")
@@ -6,39 +6,76 @@ local Inventory = require("systems.inventory")
 local StoryManager = require("systems.story_manager")
 local json = require("lib.json")
 
-local function esc(s) return tostring(s or ""):gsub("'", "''") end
+local SAVE_FILENAME = "save_data.json"
 
 function SaveManager.save()
-    -- 1. 개별 용병 데이터는 이미 각 시점(레벨업, 스탯투자 등)에 Roster.saveMercToDB를 통해 저장됨
-    -- 2. 전체 게임 상태(챕터, 플래그, 크레딧, 현재 파티 구성)를 DB에 직렬화하여 저장
+    -- 1. 현재 파티 구성 및 게임 메인 상태 업데이트
     local active_ids = {}
     for _, merc in ipairs(Roster.active_party) do table.insert(active_ids, merc.id) end
     
-    local state = {
+    local main_state = {
         current_chapter = StoryManager.current_chapter,
         world_flags = StoryManager.world_flags,
         credits = Inventory.credits,
         active_ids = active_ids
     }
     
-    local encoded = esc(json.encode(state))
-    DB.query(string.format(
-        "INSERT OR REPLACE INTO save_state (key, value) VALUES ('main_state', '%s')",
-        encoded
-    ))
+    -- DB memory state에 저장
+    DB.data.save_state["main_state"] = json.encode(main_state)
 
-    print("💾 Game State Saved to DB.")
-    return true, "저장 완료."
+    -- 2. 전체 DB 데이터를 파일로 저장 (Persistence)
+    local ok, err = pcall(function()
+        local full_data = json.encode(DB.data)
+        love.filesystem.write(SAVE_FILENAME, full_data)
+    end)
+
+    if ok then
+        print("💾 Game State Saved to disk: " .. SAVE_FILENAME)
+        return true, "저장 완료."
+    else
+        print("❌ Save Failed: " .. tostring(err))
+        return false, "저장 실패."
+    end
 end
 
 function SaveManager.load()
-    -- 1. 용병 풀 초기화 (DB에서 해금된 용병들 로드)
-    Roster.init()
+    -- 1. 파일에서 데이터 읽기
+    if not love.filesystem.getInfo(SAVE_FILENAME) then
+        print("⚠️ No Save File found on disk.")
+        -- 파일이 없으면 초기 상태로 시작하도록 Roster.init 호출
+        Roster.init()
+        return false
+    end
+
+    local ok, err = pcall(function()
+        local content = love.filesystem.read(SAVE_FILENAME)
+        local loaded_data = json.decode(content)
+        if loaded_data then
+            -- DB.data 업데이트 (메모리에 로드)
+            for k, v in pairs(loaded_data) do
+                DB.data[k] = v
+            end
+        end
+    end)
+
+    if not ok then
+        print("❌ Load Failed: " .. tostring(err))
+        Roster.init()
+        return false
+    end
+
+    -- 2. 용병 풀 초기화 (DB 메모리에서 해금된 용병들 로드)
+    Roster.pool = {}
+    Roster.active_party = {}
+    for _, m in ipairs(DB.getAllMercs()) do
+        m.skill_levels = {}
+        table.insert(Roster.pool, m)
+    end
     
-    -- 2. 게임 상태 복구
-    local res = DB.query("SELECT value FROM save_state WHERE key='main_state' LIMIT 1")
-    if res and #res > 0 then
-        local state = json.decode(res[1].value)
+    -- 3. 게임 상태 복구
+    local main_state_json = DB.data.save_state["main_state"]
+    if main_state_json then
+        local state = json.decode(main_state_json)
         
         StoryManager.current_chapter = state.current_chapter or 1
         StoryManager.world_flags = state.world_flags or {}
@@ -59,16 +96,15 @@ function SaveManager.load()
             end
         end
         
-        -- 만약 로드했는데 파티가 비어있다면 루나라도 강제 추가
+        -- 만약 로드했는데 파티가 비어있다면 초기 멤버(루나) 강제 추가
         if #Roster.active_party == 0 and #Roster.pool > 0 then
             table.insert(Roster.active_party, Roster.pool[1])
         end
 
-        print("📂 Game Loaded from DB successfully.")
+        print("📂 Game Loaded from disk successfully.")
         return true
     end
     
-    print("⚠️ No Save State found in DB.")
     return false
 end
 

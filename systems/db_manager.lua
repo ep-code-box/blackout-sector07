@@ -1,153 +1,31 @@
--- 데이터베이스 매니저 (SQLite Bridge V3 - Full Data Migration)
+-- 데이터베이스 매니저 (Memory-only version, no SQLite dependency)
 local DBManager = {}
 local json = require("lib.json")
 
-local sqlite3 = nil
-pcall(function() sqlite3 = require("lsqlite3") end)
+-- In-memory tables
+DBManager.data = {
+    mercenaries = {},
+    enemies = {},
+    skills = {},
+    items = {},
+    quests = {},
+    story_chapters = {},
+    story_events = {},
+    story_choices = {},
+    save_state = {},
+    generated_quests = {}
+}
 
 local function esc(s)
     return tostring(s or ""):gsub("'", "''")
 end
 
--- 메모리 DB 여부 플래그
-local is_memory_db = false
-
 function DBManager.init(custom_path)
-    local db_path = custom_path or "client/game_data.db"
-    if custom_path == ":memory:" then
-        is_memory_db = true
-    elseif not love.filesystem.getRealDirectory(db_path) then
-        db_path = "game_data.db"
-    end
-
-    if sqlite3 then
-        DBManager.db = sqlite3.open(db_path)
-        print("🗄️ SQLite connected: " .. db_path)
-    else
-        print("⚠️ lsqlite3 not found. Shell-Query Mode.")
-    end
-
-    -- ── 스키마 생성 ────────────────────────────────────────────────────────────
-    -- mercenaries: is_unlocked 컬럼 추가 마이그레이션
-    DBManager.query([[
-        CREATE TABLE IF NOT EXISTS mercenaries (
-            id TEXT PRIMARY KEY, name TEXT, class TEXT, level INTEGER, exp INTEGER,
-            stat_points INTEGER, skill_points INTEGER, hp INTEGER, max_hp INTEGER,
-            sp INTEGER, max_sp INTEGER, str INTEGER, dex INTEGER, int INTEGER,
-            con INTEGER, agi INTEGER, edg INTEGER, skills_csv TEXT, sprite TEXT,
-            specialization TEXT, is_unlocked INTEGER DEFAULT 0,
-            formation_slot TEXT DEFAULT 'front'
-        );
-    ]])
-    -- 기존 DB 마이그레이션: formation_slot 컬럼 없을 때만 추가
-    local col_info = DBManager.query("PRAGMA table_info(mercenaries)")
-    local has_formation = false
-    for _, col in ipairs(col_info or {}) do
-        if col.name == "formation_slot" then has_formation = true; break end
-    end
-    if not has_formation then
-        DBManager.query("ALTER TABLE mercenaries ADD COLUMN formation_slot TEXT DEFAULT 'front'")
-    end
-    DBManager.query([[CREATE TABLE IF NOT EXISTS save_state (key TEXT PRIMARY KEY, value TEXT);]])
-
-    -- enemies: 기존 스키마 삭제 후 확장 버전으로 재생성
-    DBManager.query([[DROP TABLE IF EXISTS enemies;]])
-    DBManager.query([[
-        CREATE TABLE IF NOT EXISTS enemies (
-            id TEXT PRIMARY KEY, name TEXT,
-            hp INTEGER, str INTEGER, def INTEGER, agi INTEGER, int INTEGER,
-            sp INTEGER, max_sp INTEGER,
-            scale_hp REAL DEFAULT 0, scale_str REAL DEFAULT 0,
-            scale_def REAL DEFAULT 0, scale_int REAL DEFAULT 0,
-            skills_csv TEXT, sprite TEXT,
-            reward_credits INTEGER DEFAULT 0, is_boss INTEGER DEFAULT 0
-        );
-    ]])
-    DBManager.query([[
-        CREATE TABLE IF NOT EXISTS skills (
-            id TEXT PRIMARY KEY,
-            sp_cost INTEGER DEFAULT 0, hp_cost REAL DEFAULT 0,
-            type TEXT, power REAL DEFAULT 1.0, hits INTEGER DEFAULT 1,
-            effect TEXT, duration INTEGER DEFAULT 0,
-            is_magic INTEGER DEFAULT 0, is_penetrating INTEGER DEFAULT 0,
-            bonus_on_status TEXT, revive INTEGER DEFAULT 0,
-            target TEXT, desc TEXT
-        );
-    ]])
-    DBManager.query([[
-        CREATE TABLE IF NOT EXISTS items (
-            id TEXT PRIMARY KEY, name TEXT,
-            price INTEGER DEFAULT 0, tier INTEGER DEFAULT 1, slot TEXT,
-            stats_json TEXT, grant_skill TEXT,
-            replace_skill_target TEXT, replace_skill_new TEXT, desc TEXT
-        );
-    ]])
-    DBManager.query([[
-        CREATE TABLE IF NOT EXISTS quests (
-            id TEXT PRIMARY KEY, title TEXT, desc TEXT,
-            target_x INTEGER, target_y INTEGER,
-            required_boss_id TEXT, reward_lv INTEGER DEFAULT 1,
-            completed INTEGER DEFAULT 0
-        );
-    ]])
-
-    -- story: 챕터 및 이벤트
-    DBManager.query([[DROP TABLE IF EXISTS story_chapters;]])
-    DBManager.query([[DROP TABLE IF EXISTS story_events;]])
-    DBManager.query([[DROP TABLE IF EXISTS story_choices;]])
-
-    DBManager.query([[
-        CREATE TABLE IF NOT EXISTS story_chapters (
-            id INTEGER PRIMARY KEY,
-            chapter_order INTEGER,
-            trigger_type TEXT,
-            trigger_id TEXT DEFAULT '',
-            title TEXT
-        );
-    ]])
-    DBManager.query([[
-        CREATE TABLE IF NOT EXISTS story_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            chapter_id INTEGER,
-            event_order INTEGER,
-            speaker TEXT,
-            portrait TEXT DEFAULT '',
-            side TEXT DEFAULT 'left',
-            text TEXT,
-            is_choice_node INTEGER DEFAULT 0,
-            shake INTEGER DEFAULT 0,
-            shake_intensity INTEGER DEFAULT 10,
-            flash INTEGER DEFAULT 0,
-            flash_color_json TEXT DEFAULT '[1,1,1,1]'
-        );
-    ]])
-    DBManager.query([[
-        CREATE TABLE IF NOT EXISTS story_choices (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            event_id INTEGER,
-            choice_order INTEGER,
-            text TEXT,
-            actions_json TEXT DEFAULT '[]'
-        );
-    ]])
-    DBManager.query([[
-        CREATE TABLE IF NOT EXISTS generated_quests (
-            id TEXT PRIMARY KEY,
-            title TEXT,
-            desc TEXT,
-            boss_id TEXT,
-            target_x INTEGER DEFAULT 5,
-            target_y INTEGER DEFAULT 5,
-            reward_lv INTEGER DEFAULT 1,
-            completed INTEGER DEFAULT 0,
-            created_at TEXT
-        );
-    ]])
-
+    print("🧠 Memory-DB initialized (No SQLite)")
     DBManager.seed()
 end
 
--- ── 시드: Lua 데이터 → DB (테이블이 비어있을 때만) ──────────────────────────
+-- ── 시드: Lua 데이터 → Memory ──────────────────────────
 
 function DBManager.seed()
     DBManager.seedMercs()
@@ -159,151 +37,312 @@ function DBManager.seed()
 end
 
 function DBManager.seedMercs()
-    local count = DBManager.query("SELECT COUNT(*) as n FROM mercenaries")
-    if count and count[1] and (count[1].n or 0) > 0 then return end
-
+    if #DBManager.data.mercenaries > 0 then return end
     local src = require("data.data_mercs_seed")
     for i, m in ipairs(src) do
-        local skills_csv = table.concat(m.skills or {}, ",")
-        local is_unlocked = (i == 1) and 1 or 0  -- merc_01(루나)만 초기 해금
-        DBManager.query(string.format(
-            [[INSERT OR IGNORE INTO mercenaries
-              (id,name,class,level,exp,stat_points,skill_points,hp,max_hp,sp,max_sp,str,dex,int,con,agi,edg,skills_csv,sprite,specialization,is_unlocked)
-              VALUES ('%s','%s','%s',%d,0,0,0,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,'%s','%s','',%d)]],
-            esc(m.id), esc(m.name), esc(m.class), m.level or 1,
-            m.hp, m.max_hp, m.sp, m.max_sp,
-            m.str, m.dex, m.int or 0, m.con, m.agi, m.edg,
-            esc(skills_csv), esc(m.sprite), is_unlocked
-        ))
+        local copy = {}
+        for k, v in pairs(m) do copy[k] = v end
+        copy.is_unlocked = (i == 1)
+        copy.formation_slot = "front"
+        copy.exp = 0
+        copy.skill_points = 0
+        copy.specialization = ""
+        table.insert(DBManager.data.mercenaries, copy)
     end
-    print("🌱 mercenaries seeded")
+    print("🌱 mercenaries seeded (memory)")
 end
 
 function DBManager.seedEnemies()
-    local count = DBManager.query("SELECT COUNT(*) as n FROM enemies")
-    if count and count[1] and (count[1].n or 0) > 0 then return end
-
+    if next(DBManager.data.enemies) then return end
     local src = require("data.data_enemy_seed")
     for id, e in pairs(src) do
-        local scale = e.scale or {}
-        DBManager.query(string.format(
-            [[INSERT OR IGNORE INTO enemies VALUES ('%s','%s',%d,%d,%d,%d,%d,%d,%d,%.4f,%.4f,%.4f,%.4f,'%s','%s',%d,%d)]],
-            esc(id), esc(e.name),
-            e.hp or 0, e.str or 0, e.def or 0, e.agi or 0, e.int or 0,
-            e.sp or 0, e.sp or 0,
-            scale.hp or 0, scale.str or 0, scale.def or 0, scale.int or 0,
-            esc(table.concat(e.skills or {}, ",")),
-            esc(e.sprite), e.reward_credits or 0, e.is_boss and 1 or 0
-        ))
+        local copy = {}
+        for k, v in pairs(e) do copy[k] = v end
+        copy.id = id
+        copy.skills_csv = table.concat(e.skills or {}, ",")
+        copy.scale_hp = e.scale and e.scale.hp or 0
+        copy.scale_str = e.scale and e.scale.str or 0
+        copy.scale_def = e.scale and e.scale.def or 0
+        copy.scale_int = e.scale and e.scale.int or 0
+        copy.max_sp = e.sp or 0
+        DBManager.data.enemies[id] = copy
     end
-    print("🌱 enemies seeded")
+    print("🌱 enemies seeded (memory)")
 end
 
 function DBManager.seedSkills()
-    local count = DBManager.query("SELECT COUNT(*) as n FROM skills")
-    if count and count[1] and (count[1].n or 0) > 0 then return end
-
+    if next(DBManager.data.skills) then return end
     local src = require("data.data_skills_seed")
     for id, s in pairs(src) do
-        DBManager.query(string.format(
-            [[INSERT OR IGNORE INTO skills VALUES ('%s',%d,%.4f,'%s',%.4f,%d,'%s',%d,%d,%d,'%s',%d,'%s','%s')]],
-            esc(id),
-            s.sp or 0, s.hp_cost or 0,
-            esc(s.type), s.power or 1.0, s.hits or 1,
-            esc(s.effect), s.duration or 0,
-            s.is_magic and 1 or 0, s.is_penetrating and 1 or 0,
-            esc(s.bonus_on_status), s.revive and 1 or 0,
-            esc(s.target), esc(s.desc)
-        ))
+        local copy = {}
+        for k, v in pairs(s) do copy[k] = v end
+        copy.id = id
+        copy.sp_cost = s.sp or 0
+        DBManager.data.skills[id] = copy
     end
-    print("🌱 skills seeded")
+    print("🌱 skills seeded (memory)")
 end
 
 function DBManager.seedItems()
-    local count = DBManager.query("SELECT COUNT(*) as n FROM items")
-    if count and count[1] and (count[1].n or 0) > 0 then return end
-
+    if next(DBManager.data.items) then return end
     local src = require("data.data_items_seed")
     for id, it in pairs(src) do
-        local rs = it.replace_skill or {}
-        DBManager.query(string.format(
-            [[INSERT OR IGNORE INTO items VALUES ('%s','%s',%d,%d,'%s','%s','%s','%s','%s','%s')]],
-            esc(id), esc(it.name),
-            it.price or 0, it.tier or 1, esc(it.slot),
-            esc(json.encode(it.stats or {})),
-            esc(it.grant_skill),
-            esc(rs.target), esc(rs.new_skill),
-            esc(it.desc)
-        ))
+        local copy = {}
+        for k, v in pairs(it) do copy[k] = v end
+        copy.id = id
+        copy.stats_json = json.encode(it.stats or {})
+        if it.replace_skill then
+            copy.replace_skill_target = it.replace_skill.target
+            copy.replace_skill_new = it.replace_skill.new_skill
+        end
+        DBManager.data.items[id] = copy
     end
-    print("🌱 items seeded")
+    print("🌱 items seeded (memory)")
 end
 
 function DBManager.seedQuests()
-    local count = DBManager.query("SELECT COUNT(*) as n FROM quests")
-    if count and count[1] and (count[1].n or 0) > 0 then return end
-
+    if #DBManager.data.quests > 0 then return end
     local src = require("data.data_quests_seed")
     for _, q in ipairs(src) do
-        local tc = q.target_coords or {}
-        DBManager.query(string.format(
-            [[INSERT OR IGNORE INTO quests VALUES ('%s','%s','%s',%d,%d,'%s',%d,0)]],
-            esc(q.id), esc(q.title), esc(q.desc),
-            tc.x or 0, tc.y or 0,
-            esc(q.required_boss_id), q.reward_lv or 1
-        ))
+        local copy = {}
+        for k, v in pairs(q) do copy[k] = v end
+        copy.target_x = q.target_coords and q.target_coords.x or 0
+        copy.target_y = q.target_coords and q.target_coords.y or 0
+        copy.completed = 0
+        table.insert(DBManager.data.quests, copy)
     end
-    print("🌱 quests seeded")
+    print("🌱 quests seeded (memory)")
 end
 
--- ── 쿼리 실행 ─────────────────────────────────────────────────────────────────
+function DBManager.seedStoryChapters()
+    if #DBManager.data.story_chapters > 0 then return end
+    local src = require("data.data_story_seed")
+    for _, ch in ipairs(src.chapters) do
+        local chapter_copy = {
+            id = ch.id,
+            chapter_order = ch.chapter_order,
+            trigger_type = ch.trigger_type,
+            trigger_id = ch.trigger_id or "",
+            title = ch.title
+        }
+        table.insert(DBManager.data.story_chapters, chapter_copy)
+        
+        for _, ev in ipairs(ch.events or {}) do
+            local event_id = #DBManager.data.story_events + 1
+            local event_copy = {
+                id = event_id,
+                chapter_id = ch.id,
+                event_order = ev.order,
+                speaker = ev.speaker,
+                portrait = ev.portrait or "",
+                side = ev.side or "left",
+                text = ev.text,
+                is_choice_node = ev.is_choice_node and 1 or 0,
+                shake = ev.shake and 1 or 0,
+                shake_intensity = ev.shake_intensity or 10,
+                flash = ev.flash and 1 or 0,
+                flash_color_json = ev.flash_color_json or "[1,1,1,1]"
+            }
+            table.insert(DBManager.data.story_events, event_copy)
+            
+            if ev.is_choice_node then
+                for _, ch_item in ipairs(ev.choices or {}) do
+                    local choice_copy = {
+                        id = #DBManager.data.story_choices + 1,
+                        event_id = event_id,
+                        choice_order = ch_item.order,
+                        text = ch_item.text,
+                        actions_json = json.encode(ch_item.actions or {})
+                    }
+                    table.insert(DBManager.data.story_choices, choice_copy)
+                end
+            end
+        end
+    end
+    print("🌱 story_chapters seeded (memory)")
+end
+
+-- ── 쿼리 실행 (에뮬레이션) ──────────────────────────────────────────────────
 
 function DBManager.query(sql)
-    if sqlite3 and DBManager.db then
-        local results = {}
-        for row in DBManager.db:nrows(sql) do table.insert(results, row) end
-        return results
-    else
-        -- Web/Emscripten 환경이거나 메모리 DB 테스트 중일 때 io.popen 우회
-        if love.system.getOS() == "Web" or is_memory_db then
-            print("⚠️ [Web/Test] DB Query Bypassed: " .. sql:sub(1, 30))
-            return {}
-        end
+    -- SQL 문에 따라 분기 처리 (매우 단순한 파서)
+    sql = sql:gsub("%s+", " "):trim()
+    local lower_sql = sql:lower()
 
-        local db_path = "client/game_data.db"
-        if not love.filesystem.getRealDirectory(db_path) then db_path = "game_data.db" end
-        local cmd = string.format("sqlite3 %s -json \"%s\"", db_path, sql:gsub('"', '\\"'))
-        local handle = io.popen(cmd)
-        if not handle then return {} end
-        local result_str = handle:read("*a")
-        handle:close()
-        if result_str and result_str ~= "" then
-            local ok, data = pcall(json.decode, result_str)
-            return ok and data or {}
+    -- 1. SELECT COUNT(*)
+    if lower_sql:match("^select count%(%*%)") then
+        local table_name = lower_sql:match("from%s+([%w_]+)")
+        local count = 0
+        if table_name == "mercenaries" then count = #DBManager.data.mercenaries
+        elseif table_name == "enemies" then for _ in pairs(DBManager.data.enemies) do count = count + 1 end
+        elseif table_name == "skills" then for _ in pairs(DBManager.data.skills) do count = count + 1 end
+        elseif table_name == "items" then for _ in pairs(DBManager.data.items) do count = count + 1 end
+        elseif table_name == "quests" then count = #DBManager.data.quests
+        elseif table_name == "story_chapters" then count = #DBManager.data.story_chapters
+        elseif table_name == "save_state" then
+            if lower_sql:match("where key='main_state'") then
+                count = DBManager.data.save_state["main_state"] and 1 or 0
+            else
+                for _ in pairs(DBManager.data.save_state) do count = count + 1 end
+            end
+        end
+        return {{n = count, ["count(*)"] = count}}
+    end
+
+    -- 2. SELECT * FROM table
+    if lower_sql:match("^select %* from") then
+        local table_name = lower_sql:match("from%s+([%w_]+)")
+        local results = {}
+        
+        if table_name == "mercenaries" then
+            for _, m in ipairs(DBManager.data.mercenaries) do
+                local row = {}
+                for k, v in pairs(m) do row[k] = v end
+                row.skills_csv = table.concat(m.skills or {}, ",")
+                row.is_unlocked = m.is_unlocked and 1 or 0
+                table.insert(results, row)
+            end
+        elseif table_name == "enemies" then
+            local id_filter = sql:match("id='([%w_]+)'")
+            if id_filter then
+                if DBManager.data.enemies[id_filter] then table.insert(results, DBManager.data.enemies[id_filter]) end
+            else
+                for _, e in pairs(DBManager.data.enemies) do table.insert(results, e) end
+            end
+        elseif table_name == "skills" then
+            for _, s in pairs(DBManager.data.skills) do table.insert(results, s) end
+        elseif table_name == "items" then
+            for _, it in pairs(DBManager.data.items) do table.insert(results, it) end
+        elseif table_name == "quests" then
+            for _, q in ipairs(DBManager.data.quests) do table.insert(results, q) end
+        elseif table_name == "save_state" then
+            local key_filter = sql:match("key='([%w_]+)'")
+            if key_filter then
+                if DBManager.data.save_state[key_filter] then
+                    table.insert(results, {key = key_filter, value = DBManager.data.save_state[key_filter]})
+                end
+            else
+                for k, v in pairs(DBManager.data.save_state) do table.insert(results, {key = k, value = v}) end
+            end
+        elseif table_name == "story_chapters" then
+            local tt = sql:match("trigger_type='([%w_]+)'")
+            local ti = sql:match("trigger_id='([%w_]*)'")
+            for _, ch in ipairs(DBManager.data.story_chapters) do
+                if (not tt or ch.trigger_type == tt) and (not ti or ch.trigger_id == ti) then
+                    table.insert(results, ch)
+                end
+            end
+        elseif table_name == "story_events" then
+            local cid = tonumber(sql:match("chapter_id=(%d+)"))
+            for _, ev in ipairs(DBManager.data.story_events) do
+                if not cid or ev.chapter_id == cid then table.insert(results, ev) end
+            end
+        elseif table_name == "story_choices" then
+            local eid = tonumber(sql:match("event_id=(%d+)"))
+            for _, ch in ipairs(DBManager.data.story_choices) do
+                if not eid or ch.event_id == eid then table.insert(results, ch) end
+            end
+        elseif table_name == "generated_quests" then
+            for _, q in pairs(DBManager.data.generated_quests) do
+                if q.completed == 0 then table.insert(results, q) end
+            end
+        end
+        return results
+    end
+
+    -- 3. INSERT OR REPLACE / INSERT INTO
+    if lower_sql:match("^insert") then
+        local table_name = lower_sql:match("into%s+([%w_]+)")
+        if table_name == "save_state" then
+            local key = sql:match("VALUES%s*%(%s*'([%w_]+)'")
+            local value = sql:match("'%s*,%s*'(.*)'%s*%)")
+            if key and value then
+                DBManager.data.save_state[key] = value:gsub("''", "'")
+            end
+        elseif table_name == "mercenaries" then
+            -- Roster.saveMercToDB에서 호출함
+            local id = sql:match("VALUES%s*%(%s*'([%w_]+)'")
+            if id then
+                -- 간단하게 id로 찾아서 업데이트 (실제로는 모든 필드를 파싱해야 하지만, Roster 객체를 직접 다루는 게 나을 수도 있음)
+                -- 여기서는 일단 쿼리 파싱보다는 Roster에서 직접 data.mercenaries를 수정하도록 유도하거나, 최소한의 필드만 업데이트
+                for _, m in ipairs(DBManager.data.mercenaries) do
+                    if m.id == id then
+                        -- 대략적인 파싱 (level, exp, hp, max_hp 등)
+                        local vals = {}
+                        for v in sql:gmatch("'([^']*)'") do table.insert(vals, v) end
+                        -- 복잡하므로 Roster.saveMercToDB를 수정하는 것이 더 안전함. 
+                        -- 여기서는 무시하고 Roster가 메모리 상의 객체를 직접 수정한다고 가정.
+                        break
+                    end
+                end
+            end
+        elseif table_name == "generated_quests" then
+            local id = sql:match("VALUES%s*%(%s*'([%w_]+)'")
+            if id then
+                local vals = {}
+                for v in sql:gmatch("'([^']*)'") do table.insert(vals, v) end
+                DBManager.data.generated_quests[id] = {
+                    id = id, title = vals[2], desc = vals[3], boss_id = vals[4],
+                    completed = 0, created_at = vals[#vals]
+                }
+            end
         end
         return {}
     end
-end
 
--- ── 헬퍼: 적 ─────────────────────────────────────────────────────────────────
-
-function DBManager.getEnemyScaled(id, level)
-    local res = DBManager.query(string.format("SELECT * FROM enemies WHERE id='%s' LIMIT 1", esc(id)))
-    if not res or #res == 0 then 
-        -- Fallback for Web/Test mode where DB might be empty
-        local src = require("data.data_enemy_seed")
-        for k, v in pairs(src) do
-            if v.id == id or k == id then
-                res = {v}
-                break
+    -- 4. UPDATE
+    if lower_sql:match("^update") then
+        local table_name = lower_sql:match("update%s+([%w_]+)")
+        if table_name == "mercenaries" then
+            local id = sql:match("where id='([%w_]+)'")
+            local unlocked = sql:match("is_unlocked=(%d)")
+            if id and unlocked then
+                for _, m in ipairs(DBManager.data.mercenaries) do
+                    if m.id == id then m.is_unlocked = (unlocked == "1"); break end
+                end
+            end
+        elseif table_name == "quests" then
+            local id = sql:match("where id='([%w_]+)'")
+            local comp = sql:match("completed=(%d)")
+            if id and comp then
+                for _, q in ipairs(DBManager.data.quests) do
+                    if q.id == id then q.completed = tonumber(comp); break end
+                end
+            elseif lower_sql:match("set completed=0") then
+                for _, q in ipairs(DBManager.data.quests) do q.completed = 0 end
             end
         end
-        if not res or #res == 0 then return nil end
+        return {}
     end
-    
-    local base = res[1]
-    local lv = math.max(1, level or 1)
 
+    -- 5. DELETE
+    if lower_sql:match("^delete") then
+        local table_name = lower_sql:match("from%s+([%w_]+)")
+        if table_name == "mercenaries" then
+            -- 초기 상태로 되돌리기 위해 다시 시드
+            DBManager.data.mercenaries = {}
+            DBManager.seedMercs()
+        elseif table_name == "save_state" then
+            DBManager.data.save_state = {}
+        end
+        return {}
+    end
+
+    return {}
+end
+
+-- string.trim helper
+function string.trim(s)
+    return s:match("^%s*(.-)%s*$")
+end
+
+-- ── 헬퍼 함수들 (기존 인터페이스 유지) ──────────────────────────────────────────
+
+function DBManager.getEnemyScaled(id, level)
+    local base = DBManager.data.enemies[id]
+    if not base then return nil end
+    
+    local lv = math.max(1, level or 1)
     local scaled = {}
     for k, v in pairs(base) do scaled[k] = v end
 
@@ -318,36 +357,18 @@ function DBManager.getEnemyScaled(id, level)
     scaled.sp     = scaled.max_sp
     scaled.level  = lv
 
-    -- skills_csv → skills 배열
     scaled.skills = {}
-    local skills_str = base.skills_csv
-    if not skills_str and base.skills then
-        scaled.skills = base.skills
-    else
-        for s in (skills_str or ""):gmatch("([^,]+)") do
-            table.insert(scaled.skills, s)
-        end
+    for s in (base.skills_csv or ""):gmatch("([^,]+)") do
+        table.insert(scaled.skills, s)
     end
     scaled.is_boss = base.is_boss == 1 or base.is_boss == true
-
     return scaled
 end
 
--- ── 헬퍼: 스킬 ───────────────────────────────────────────────────────────────
-
-local _skills_cache = nil
 function DBManager.getSkillDict()
-    if _skills_cache then return _skills_cache end
-    local rows = DBManager.query("SELECT * FROM skills")
-    
-    -- Fallback for Web/Test mode
-    if not rows or #rows == 0 then
-        return require("data.data_skills_seed")
-    end
-    
-    _skills_cache = {}
-    for _, row in ipairs(rows or {}) do
-        _skills_cache[row.id] = {
+    local dict = {}
+    for id, row in pairs(DBManager.data.skills) do
+        dict[id] = {
             sp         = row.sp_cost,
             hp_cost    = row.hp_cost ~= 0 and row.hp_cost or nil,
             type       = row.type,
@@ -355,36 +376,23 @@ function DBManager.getSkillDict()
             hits       = row.hits ~= 1 and row.hits or nil,
             effect     = row.effect ~= "" and row.effect or nil,
             duration   = row.duration ~= 0 and row.duration or nil,
-            is_magic   = row.is_magic == 1 or nil,
-            is_penetrating = row.is_penetrating == 1 or nil,
+            is_magic   = row.is_magic == 1 or row.is_magic == true,
+            is_penetrating = row.is_penetrating == 1 or row.is_penetrating == true,
             bonus_on_status = row.bonus_on_status ~= "" and row.bonus_on_status or nil,
-            revive     = row.revive == 1 or nil,
+            revive     = row.revive == 1 or row.revive == true,
             target     = row.target ~= "" and row.target or nil,
             desc       = row.desc,
         }
     end
-    return _skills_cache
+    return dict
 end
 
--- ── 헬퍼: 아이템 ─────────────────────────────────────────────────────────────
-
-local _items_cache = nil
 function DBManager.getAllItems()
-    if _items_cache then return _items_cache end
-    local rows = DBManager.query("SELECT * FROM items")
-    
-    -- Fallback
-    if not rows or #rows == 0 then
-        _items_cache = require("data.data_items_seed")
-        return _items_cache
-    end
-    
-    _items_cache = {}
-    for _, row in ipairs(rows or {}) do
+    local dict = {}
+    for id, row in pairs(DBManager.data.items) do
         local stats = {}
         if row.stats_json and row.stats_json ~= "" then
-            local ok, parsed = pcall(json.decode, row.stats_json)
-            if ok then stats = parsed end
+            pcall(function() stats = json.decode(row.stats_json) end)
         end
         local item = {
             id    = row.id,   name  = row.name,
@@ -396,19 +404,14 @@ function DBManager.getAllItems()
         if row.replace_skill_target and row.replace_skill_target ~= "" then
             item.replace_skill = { target = row.replace_skill_target, new_skill = row.replace_skill_new }
         end
-        _items_cache[row.id] = item
+        dict[id] = item
     end
-    return _items_cache
+    return dict
 end
 
--- ── 헬퍼: 퀘스트 ─────────────────────────────────────────────────────────────
-
 function DBManager.getAllQuests()
-    local rows = DBManager.query("SELECT * FROM quests")
-    if not rows or #rows == 0 then return require("data.data_quests_seed") end
-    
     local result = {}
-    for _, row in ipairs(rows or {}) do
+    for _, row in ipairs(DBManager.data.quests) do
         table.insert(result, {
             id              = row.id,
             title           = row.title,
@@ -423,164 +426,92 @@ function DBManager.getAllQuests()
 end
 
 function DBManager.setQuestCompleted(quest_id, completed)
-    DBManager.query(string.format(
-        "UPDATE quests SET completed=%d WHERE id='%s'",
-        completed and 1 or 0, esc(quest_id)
-    ))
+    for _, q in ipairs(DBManager.data.quests) do
+        if q.id == quest_id then q.completed = completed and 1 or 0; break end
+    end
 end
 
 function DBManager.getAllMercs()
-    local rows = DBManager.query("SELECT * FROM mercenaries")
-    if not rows or #rows == 0 then
-        -- Fallback
-        local src = require("data.data_mercs_seed")
-        local res = {}
-        for i, m in ipairs(src) do
-            m.is_unlocked = (i == 1)
-            m.formation = "front"
-            table.insert(res, m)
-        end
-        return res
-    end
-    
     local result = {}
-    for _, row in ipairs(rows or {}) do
+    for _, row in ipairs(DBManager.data.mercenaries) do
         local m = {}
         for k, v in pairs(row) do m[k] = v end
-        m.skills = {}
-        for s in (row.skills_csv or ""):gmatch("([^,]+)") do table.insert(m.skills, s) end
-        m.skill_levels = {}
-        m.is_unlocked   = row.is_unlocked == 1
-        m.formation     = row.formation_slot or "front"
+        if row.skills_csv then
+            m.skills = {}
+            for s in row.skills_csv:gmatch("([^,]+)") do table.insert(m.skills, s) end
+        end
+        m.is_unlocked = (row.is_unlocked == 1 or row.is_unlocked == true)
+        m.formation = row.formation_slot or "front"
         table.insert(result, m)
     end
     return result
 end
 
 function DBManager.setMercUnlocked(merc_id, unlocked)
-    DBManager.query(string.format(
-        "UPDATE mercenaries SET is_unlocked=%d WHERE id='%s'",
-        unlocked and 1 or 0, esc(merc_id)
-    ))
+    for _, m in ipairs(DBManager.data.mercenaries) do
+        if m.id == merc_id then m.is_unlocked = unlocked; break end
+    end
 end
 
 function DBManager.resetQuests()
-    DBManager.query("UPDATE quests SET completed=0")
+    for _, q in ipairs(DBManager.data.quests) do q.completed = 0 end
 end
 
-function DBManager.seedStoryChapters()
-    local count = DBManager.query("SELECT COUNT(*) as n FROM story_chapters")
-    if count and count[1] and (count[1].n or 0) > 0 then return end
-
-    local src = require("data.data_story_seed")
-    for _, ch in ipairs(src.chapters) do
-        DBManager.query(string.format(
-            "INSERT OR IGNORE INTO story_chapters (id, chapter_order, trigger_type, trigger_id, title) VALUES (%d,%d,'%s','%s','%s')",
-            ch.id, ch.chapter_order, esc(ch.trigger_type), esc(ch.trigger_id or ""), esc(ch.title)
-        ))
-        for _, ev in ipairs(ch.events or {}) do
-            DBManager.query(string.format(
-                [[INSERT INTO story_events 
-                  (chapter_id, event_order, speaker, portrait, side, text, is_choice_node, shake, shake_intensity, flash, flash_color_json) 
-                  VALUES (%d,%d,'%s','%s','%s','%s',%d,%d,%d,%d,'%s')]],
-                ch.id, ev.order, esc(ev.speaker), esc(ev.portrait or ""), esc(ev.side or "left"), esc(ev.text), 
-                ev.is_choice_node and 1 or 0,
-                ev.shake and 1 or 0, ev.shake_intensity or 10,
-                ev.flash and 1 or 0, esc(ev.flash_color_json or "[1,1,1,1]")
-            ))
-            if ev.is_choice_node then
-                -- last_insert_rowid()는 Shell-Mode에서 동작하지 않으므로 직접 조회
-                local ev_row = DBManager.query(string.format(
-                    "SELECT id FROM story_events WHERE chapter_id=%d AND event_order=%d",
-                    ch.id, ev.order
-                ))
-                local ev_id = ev_row and ev_row[1] and ev_row[1].id
-                if ev_id then
-                    for _, ch_item in ipairs(ev.choices or {}) do
-                        local json = require("lib.json")
-                        DBManager.query(string.format(
-                            "INSERT INTO story_choices (event_id, choice_order, text, actions_json) VALUES (%d,%d,'%s','%s')",
-                            ev_id, ch_item.order, esc(ch_item.text), esc(json.encode(ch_item.actions or {}))
-                        ))
-                    end
-                end
-            end
-        end
+function DBManager.getChapterByOrder(order)
+    for _, ch in ipairs(DBManager.data.story_chapters) do
+        if ch.chapter_order == order then return ch end
     end
-    print("🌱 story_chapters seeded")
+    return nil
 end
 
 function DBManager.getChapterByTrigger(trigger_type, trigger_id)
-    local rows
-    if trigger_id and trigger_id ~= "" then
-        rows = DBManager.query(string.format(
-            "SELECT * FROM story_chapters WHERE trigger_type='%s' AND trigger_id='%s' LIMIT 1",
-            esc(trigger_type), esc(trigger_id)
-        ))
-    else
-        rows = DBManager.query(string.format(
-            "SELECT * FROM story_chapters WHERE trigger_type='%s' LIMIT 1",
-            esc(trigger_type)
-        ))
-    end
-    
-    -- Fallback for Web
-    if not rows or #rows == 0 then
-        local src = require("data.data_story_seed")
-        for _, ch in ipairs(src.chapters) do
-            if ch.trigger_type == trigger_type and (not trigger_id or trigger_id == "" or ch.trigger_id == trigger_id) then
-                return ch
-            end
+    for _, ch in ipairs(DBManager.data.story_chapters) do
+        if ch.trigger_type == trigger_type and (not trigger_id or trigger_id == "" or ch.trigger_id == trigger_id) then
+            return ch
         end
     end
-    
-    return rows and rows[1] or nil
+    return nil
 end
 
 function DBManager.getChapterEvents(chapter_id)
-    local rows = DBManager.query(string.format(
-        "SELECT * FROM story_events WHERE chapter_id=%d ORDER BY event_order ASC",
-        chapter_id
-    ))
-    
-    if not rows or #rows == 0 then
-        local src = require("data.data_story_seed")
-        for _, ch in ipairs(src.chapters) do
-            if ch.id == chapter_id then
-                return ch.events or {}
-            end
-        end
-        return {}
+    local result = {}
+    for _, ev in ipairs(DBManager.data.story_events) do
+        if ev.chapter_id == chapter_id then table.insert(result, ev) end
     end
-    return rows
+    table.sort(result, function(a, b) return a.event_order < b.event_order end)
+    return result
 end
 
 function DBManager.getChoicesForEvent(event_id)
-    local rows = DBManager.query(string.format(
-        "SELECT * FROM story_choices WHERE event_id=%d ORDER BY choice_order ASC",
-        event_id
-    ))
-    if not rows or #rows == 0 then return {} end
-    local json = require("lib.json")
-    for _, row in ipairs(rows) do
-        local ok, decoded = pcall(json.decode, row.actions_json or "[]")
-        row.actions = ok and decoded or {}
+    local result = {}
+    for _, row in ipairs(DBManager.data.story_choices) do
+        if row.event_id == event_id then
+            local choice = {}
+            for k, v in pairs(row) do choice[k] = v end
+            local ok, decoded = pcall(json.decode, row.actions_json or "[]")
+            choice.actions = ok and decoded or {}
+            table.insert(result, choice)
+        end
     end
-    return rows
+    table.sort(result, function(a, b) return a.choice_order < b.choice_order end)
+    return result
 end
 
 function DBManager.getGeneratedQuests()
-    local rows = DBManager.query("SELECT * FROM generated_quests WHERE completed=0 ORDER BY created_at DESC") or {}
-    return rows
+    local result = {}
+    for _, q in pairs(DBManager.data.generated_quests) do
+        if q.completed == 0 then table.insert(result, q) end
+    end
+    return result
 end
 
 function DBManager.insertGeneratedQuest(q)
-    DBManager.query(string.format(
-        "INSERT OR REPLACE INTO generated_quests (id,title,desc,boss_id,target_x,target_y,reward_lv,completed,created_at) VALUES ('%s','%s','%s','%s',%d,%d,%d,0,'%s')",
-        esc(q.id), esc(q.title), esc(q.desc), esc(q.boss_id),
-        q.target_x or 5, q.target_y or 5, q.reward_lv or 1,
-        esc(os.date and os.date("%Y-%m-%d %H:%M:%S") or "")
-    ))
+    DBManager.data.generated_quests[q.id] = {
+        id = q.id, title = q.title, desc = q.desc, boss_id = q.boss_id,
+        target_x = q.target_x or 5, target_y = q.target_y or 5,
+        reward_lv = q.reward_lv or 1, completed = 0,
+        created_at = os.date and os.date("%Y-%m-%d %H:%M:%S") or ""
+    }
 end
 
 return DBManager

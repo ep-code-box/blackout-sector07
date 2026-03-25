@@ -81,11 +81,8 @@ function UIExplore.draw(map, player, blink_alpha, interaction_msg)
     UI.drawPanel(20, 20, 480, 130, L("ui_uplink_title"))
     local StoryManager = require("systems.story_manager")
     local DB = require("systems.db_manager")
-    local cur_chap = DB.query(string.format(
-        "SELECT * FROM story_chapters WHERE chapter_order=%d LIMIT 1",
-        math.max(1, StoryManager.current_chapter - 1)
-    ))
-    cur_chap = cur_chap and cur_chap[1]
+    local cur_chap = DB.getChapterByOrder(math.max(1, StoryManager.current_chapter - 1))
+    
     if cur_chap then
         love.graphics.setFont(UI.font_normal)
         love.graphics.setColor(UI.color.accent)

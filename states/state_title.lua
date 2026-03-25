@@ -5,6 +5,7 @@ local i18n = require("systems.i18n")
 local AssetManager = require("systems.asset_manager")
 local SaveManager = require("systems.save_manager")
 local AudioManager = require("systems.audio_manager")
+local DB = require("systems.db_manager")
 
 local bg_img
 local selected_menu = 1
@@ -13,11 +14,14 @@ local has_save = false
 local message = ""
 local msg_timer = 0
 
+local SAVE_FILENAME = "save_data.json"
+
 function StateTitle.load()
     bg_img = AssetManager.loadImage("ui_title_screen", "assets/images/map/ui_title_screen.png")
-    local DB = require("systems.db_manager")
-    local res = DB.query("SELECT COUNT(*) as n FROM save_state WHERE key='main_state'")
-    has_save = res and res[1] and (res[1].n or 0) > 0
+    
+    -- 세이브 파일 존재 여부 확인 (Memory-DB 기반)
+    has_save = love.filesystem.getInfo(SAVE_FILENAME) ~= nil
+    
     AudioManager.playBGM("bgm_title", "assets/audio/bgm/bgm_title.wav")
 end
 
@@ -83,23 +87,21 @@ function StateTitle.keypressed(key)
         local choice = menu_items[selected_menu]
         
         if choice == "menu_new_game" then
-            -- 1. DB 초기화 (기존 데이터 삭제)
-            local DB = require("systems.db_manager")
+            -- 1. DB 초기화 (메모리 데이터 리셋)
             local StoryManager = require("systems.story_manager")
             
-            -- 웹/E2E 환경에서는 파일 생성 이슈 방지를 위해 DROP TABLE을 우회하거나 단순화
-            if love.system.getOS() ~= "Web" then
-                DB.query("DELETE FROM mercenaries;")
-                DB.query("DELETE FROM save_state;")
-                DB.seedMercs() -- 삭제 후 기본 용병만 다시 시딩
-            end
+            DB.data.mercenaries = {}
+            DB.data.save_state = {}
+            DB.data.generated_quests = {}
+            DB.seedMercs()
+            DB.resetQuests()
             
+            -- 기존 세이브 파일 삭제 (선택사항, 여기서는 덮어쓰기 방식으로 처리 가능)
+            -- love.filesystem.remove(SAVE_FILENAME)
+
             -- 2. 시스템 상태 리셋
             local Roster = require("systems.roster")
             Roster.init()
-            if love.system.getOS() ~= "Web" then
-                DB.resetQuests()
-            end
             StoryManager.current_chapter = 1 -- 챕터 기록 초기화
             
             return "hub"
