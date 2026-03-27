@@ -46,9 +46,14 @@ function StateHub.load()
     current_sub = nil
     AudioManager.playBGM("bgm_hub", "assets/audio/bgm/bgm_hub.wav")
 
-    -- [추가] 신규 게임일 경우 프롤로그 트리거
+    -- 프롤로그 트리거 (신규 게임)
     if StoryManager.current_chapter == 1 and not StoryManager.is_active then
         StoryManager.triggerChapter("initial")
+    end
+
+    -- Director가 직조한 hub_load 챕터 트리거 (바텐더 소문 대사)
+    if not StoryManager.is_active then
+        StoryManager.triggerChapter("hub_load")
     end
 end
 
@@ -96,7 +101,7 @@ function StateHub.handleMainMenu()
         for _, char in ipairs(party) do char.hp = char.max_hp; char.sp = char.max_sp end
         dialogue = L("hub_dialogue_rested")
     elseif selected_menu == 2 then current_sub = "roster"
-    elseif selected_menu == 3 then current_sub = "shop"
+    elseif selected_menu == 3 then current_sub = "shop"; print("E2E_HOOK: SHOP_OPENED")
     elseif selected_menu == 4 then StatusOverlay.isOpen = true
     elseif selected_menu == 5 then current_sub = "skills"
     elseif selected_menu == 6 then

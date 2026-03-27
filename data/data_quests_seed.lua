@@ -10,12 +10,30 @@ local quests = {
         completed = false
     },
     {
+        id = "main_02",
+        title = "해커 역추적",
+        desc = "연구소 환기구로 도망친 해커 '로그'를 추적해 제압하십시오. 그의 뇌 속에 코어 좌표가 있습니다.",
+        target_coords = {x=8, y=4},
+        required_boss_id = "hacker_rogue",
+        reward_lv = 1,
+        completed = false
+    },
+    {
+        id = "main_03",
+        title = "아스트라 집행관 저지",
+        desc = "해커 사망 신호가 역추적됐습니다. 아스트라 코프 정예 집행관 부대가 진입 중입니다. 섬멸하십시오.",
+        target_coords = {x=10, y=8},
+        required_boss_id = "corp_enforcer_elite",
+        reward_lv = 1,
+        completed = false
+    },
+    {
         id = "main_01",
         title = "사이버 사이코 소탕",
-        desc = "하층 구역에서 날뛰는 사이버 사이코를 제압하십시오.",
-        target_coords = {x=2, y=2},
-        required_boss_id = "cyber_psycho", -- ID로 변경
-        reward_lv = 1,
+        desc = "코어 룸 하층부에서 날뛰는 사이버 사이코 부대를 섬멸하십시오. 코어로 가는 마지막 관문입니다.",
+        target_coords = {x=12, y=10},
+        required_boss_id = "cyber_psycho",
+        reward_lv = 2,
         completed = false
     },
     {

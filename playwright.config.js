@@ -5,24 +5,24 @@ module.exports = defineConfig({
   timeout: 90 * 1000,
   expect: { timeout: 10000 },
   fullyParallel: false,
-  retries: process.env.CI ? 2 : 0,
+  retries: 0,
   workers: 1,
-  reporter: process.env.CI ? 'github' : 'list',
+  reporter: 'list',
   use: {
-    headless: process.env.CI ? true : false, // 로컬에선 기본적으로 창을 띄움
+    headless: false, // macOS: WebGL은 헤드리스 미지원, headed 모드 필요
     actionTimeout: 0,
     trace: 'on-first-retry',
     viewport: { width: 1280, height: 720 },
   },
   projects: [
     {
-      name: 'webkit',
-      use: { ...devices['Desktop Safari'] },
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
     },
   ],
   webServer: {
     command: 'npm run serve:web',
-    port: 8080,
+    port: 8090,
     reuseExistingServer: !process.env.CI,
   },
 });

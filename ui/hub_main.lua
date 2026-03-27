@@ -2,6 +2,7 @@
 local UI = require("ui.theme")
 local AssetManager = require("systems.asset_manager")
 local Inventory = require("systems.inventory")
+local DBManager = require("systems.db_manager")
 local UIHubMain = {}
 
 function UIHubMain.draw(pub_bg, npc_bartender, quests_db, party, menu_keys, selected_menu, dialogue)
@@ -57,8 +58,19 @@ function UIHubMain.draw(pub_bg, npc_bartender, quests_db, party, menu_keys, sele
             love.graphics.setColor(UI.color.highlight)
             love.graphics.print(">", ax + 15, y)
             love.graphics.setColor(UI.color.text_main)
-        else love.graphics.setColor(0.4, 0.4, 0.4) end
-        love.graphics.print((q.completed and "[DONE] " or "[ACTV] ") .. q.title, ax + 35, y)
+            love.graphics.print("[ACTV] " .. q.title, ax + 35, y)
+            -- 타겟 적 이름 표시
+            if (q.required_boss_id or "") ~= "" then
+                local boss = DBManager.getEnemyScaled(q.required_boss_id, 1)
+                if boss then
+                    love.graphics.setColor(UI.color.danger)
+                    love.graphics.print("  └ TARGET: " .. boss.name, ax + 35, y + 14)
+                end
+            end
+        else
+            love.graphics.setColor(0.4, 0.4, 0.4)
+            love.graphics.print("[DONE] " .. q.title, ax + 35, y)
+        end
     end
     UI.drawScrollBar(ax + aw - 10, ay + 40, 3, ah - 50, #quests_db, max_visible, scroll_ratio, {0, 1, 0.8})
 

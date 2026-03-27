@@ -58,7 +58,7 @@ return {
         -- [CHAPTER 4: KIRA JOIN]
         {
             id = 4, chapter_order = 4,
-            trigger_type = "boss_kill", trigger_id = "enemy_corp_enforcer_elite",
+            trigger_type = "boss_kill", trigger_id = "corp_enforcer_elite",
             title = "story_ch4_title",
             events = {
                 { order=1, speaker="merc_01_luna", portrait="merc_01_luna", side="left",  text="story_ch4_event1", shake=true },

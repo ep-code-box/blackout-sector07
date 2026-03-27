@@ -1,6 +1,7 @@
 -- 펍 상점(리퍼닥) UI 모듈
 local UI = require("ui.theme")
 local Inventory = require("systems.inventory")
+local AssetManager = require("systems.asset_manager")
 local UIHubShop = {}
 
 function UIHubShop.draw(items_db, credits, shop_cursor)
@@ -27,14 +28,35 @@ function UIHubShop.draw(items_db, credits, shop_cursor)
             love.graphics.setColor(1, 1, 1, 1)
             love.graphics.print(">", x + 5, y + 15)
         end
-        
+
+        -- 아이템 아이콘 (48x48)
+        local icon_size = 48
+        local icon_x, icon_y = x + 8, y + 6
+        local icon_key  = "item_" .. (item.id or "")
+        local icon_path = "assets/images/items/" .. (item.id or "") .. ".png"
+        local icon_img  = AssetManager.loadImage(icon_key, icon_path)
+        if icon_img then
+            love.graphics.setColor(1, 1, 1, 1)
+            love.graphics.draw(icon_img, icon_x, icon_y, 0, icon_size/icon_img:getWidth(), icon_size/icon_img:getHeight())
+        else
+            -- 아이콘 미생성 시: 슬롯 이니셜 박스
+            love.graphics.setColor(0.1, 0.15, 0.2, 0.8)
+            love.graphics.rectangle("fill", icon_x, icon_y, icon_size, icon_size, 3)
+            love.graphics.setColor(UI.color.text_dim)
+            love.graphics.rectangle("line", icon_x, icon_y, icon_size, icon_size, 3)
+            love.graphics.setFont(UI.font_small)
+            local slot_label = (item.slot or "?"):sub(1,3):upper()
+            love.graphics.printf(slot_label, icon_x, icon_y + 17, icon_size, "center")
+        end
+
+        local text_x = icon_x + icon_size + 8
         love.graphics.setColor(UI.color.accent)
-        love.graphics.print(item.name .. " (" .. item.price .. " C)", x + 25, y + 5)
-        
+        love.graphics.print(item.name .. " (" .. item.price .. " C)", text_x, y + 5)
+
         love.graphics.setFont(UI.font_small)
         love.graphics.setColor(UI.color.text_dim)
-        love.graphics.print(item.desc, x + 25, y + 30)
-        
+        love.graphics.print(item.desc, text_x, y + 30)
+
         -- 스탯 정보
         local stat_txt = ""
         for s, v in pairs(item.stats) do stat_txt = stat_txt .. s:upper() .. (v>=0 and "+" or "") .. v .. " " end

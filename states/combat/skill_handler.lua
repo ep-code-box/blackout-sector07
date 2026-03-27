@@ -17,7 +17,9 @@ function SkillHandler.execute(caster, target_primary, skill_name, skills_db, par
 
     -- [추가] 공통 시각 효과 트리거
     if skill.fx_type == "hack" or skill.fx_type == "glitch" then
-        ShaderManager.trigger(0.5) -- 글리치 강도
+        ShaderManager.trigger(0.5)
+        FXManager.panelGlitch(0.5) -- UI 패널 색 반전 연출 추가
+        print("E2E_HOOK: FX_GLITCH")
     elseif skill.fx_type == "impact" then
         FXManager.shake(20, 0.4)
     elseif skill.fx_type == "buff" or skill.fx_type == "heal" then

@@ -5,6 +5,27 @@ local flux = require("lib.flux")
 
 local floating_texts = {}
 
+-- 4. UI 패널 글리치 (hack/glitch 스킬 전용)
+local glitch_timer  = 0
+local glitch_lines  = {}  -- {y, width, alpha}
+
+function FXManager.panelGlitch(duration)
+    glitch_timer = duration or 0.5
+    glitch_lines = {}
+    for _ = 1, 5 do
+        table.insert(glitch_lines, {
+            y     = math.random(470, 695),  -- 전술 패널 내부
+            w     = math.random(80, 400),
+            x_off = math.random(-20, 20),
+            alpha = math.random(50, 90) / 100,
+        })
+    end
+end
+
+function FXManager.isGlitching()
+    return glitch_timer > 0
+end
+
 -- 1. 화면 흔들림 (Screen Shake)
 local shake_amount = 0
 local shake_duration = 0
@@ -58,6 +79,11 @@ function FXManager.update(dt)
         shake_duration = shake_duration - dt
     end
 
+    -- Glitch 업데이트
+    if glitch_timer > 0 then
+        glitch_timer = glitch_timer - dt
+    end
+
     -- 텍스트 제거 관리
     for i = #floating_texts, 1, -1 do
         if not floating_texts[i].alive then
@@ -71,6 +97,18 @@ function FXManager.draw()
     if flash_color[4] > 0 then
         love.graphics.setColor(flash_color[1], flash_color[2], flash_color[3], flash_color[4])
         love.graphics.rectangle("fill", 0, 0, 1280, 720)
+    end
+
+    -- 1-b. 패널 글리치 라인 (hack/glitch 스킬 효과)
+    if glitch_timer > 0 then
+        local t_ratio = glitch_timer / 0.5  -- 시간에 따라 점점 희미해짐
+        for _, gl in ipairs(glitch_lines) do
+            love.graphics.setColor(0, 1, 0.8, gl.alpha * t_ratio)
+            love.graphics.rectangle("fill", gl.x_off + math.random(-3, 3), gl.y, gl.w, 2)
+        end
+        -- 전술 패널 테두리 색 반전 힌트
+        love.graphics.setColor(1, 0.1, 0.3, 0.25 * t_ratio)
+        love.graphics.rectangle("fill", 20, 470, 1240, 230)
     end
 
     -- 2. 플로팅 텍스트 렌더링

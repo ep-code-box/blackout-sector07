@@ -23,6 +23,24 @@ local moved_recently = false
 
 local MAP_WIDTH, MAP_HEIGHT = 15, 15
 
+-- 챕터별 던전 테마 (폴더명, BGM)
+-- current_chapter 기준: initial 트리거는 1→2로 올리지만 아직 첫 보스를 안 잡은 상태.
+-- boss_kill 트리거가 발생해야 실제 던전 테마가 바뀌어야 하므로:
+--   ch1,2 → sector_07 (prologue 전후, 첫 보스 킬 전)
+--   ch3   → lab       (drone_security 킬 후)
+--   ch4   → street    (hacker_rogue 킬 후)
+--   ch5   → nexus
+--   ch6+  → core
+local CHAPTER_THEMES = {
+    [1] = { folder = "sector_07", bgm = "bgm_explore" },
+    [2] = { folder = "sector_07", bgm = "bgm_explore" },
+    [3] = { folder = "lab",       bgm = "bgm_lab"     },
+    [4] = { folder = "street",    bgm = "bgm_street"  },
+    [5] = { folder = "nexus",     bgm = "bgm_nexus"   },
+    [6] = { folder = "core",      bgm = "bgm_core"    },
+}
+local loaded_chapter = 0
+
 local ENEMY_POOLS = {
     [1] = {"drone_security", "hacker_rogue"},
     [2] = {"drone_security", "hacker_rogue", "corp_enforcer"},
@@ -42,23 +60,51 @@ function StateExplore.load(force_reset)
     local is_e2e = false
     for _, v in ipairs(arg or {}) do if v == "--e2e" then is_e2e = true break end end
 
+    -- 현재 챕터 테마 결정
+    local StoryManager = require("systems.story_manager")
+    local ch = math.max(1, math.min(6, StoryManager.current_chapter))
+    local theme = CHAPTER_THEMES[ch] or CHAPTER_THEMES[#CHAPTER_THEMES] or CHAPTER_THEMES[1]
+
+    -- 챕터가 바뀌었거나 pending 리셋 플래그가 있으면 강제 리셋
+    if ch ~= loaded_chapter or StoryManager.pending_explore_reset then
+        force_reset = true
+        StoryManager.pending_explore_reset = false
+    end
+
     if not map or #map == 0 or force_reset then
         if is_e2e then
-            -- 1. E2E 고정 맵 로드
+            -- 1. E2E: 고정 테스트 맵
             local test_map_data = require("data.data_map_test")
             map = {}
             for y, row in ipairs(test_map_data.layout) do
                 map[y] = {}
                 for x, val in ipairs(row) do map[y][x] = val end
             end
-            player.x, player.y = 2, 3 -- 테스트 시작점 고정 (Lua 인덱스 주의)
+            player.x, player.y = 2, 3
             player.facing = "north"
             print("E2E_HOOK: TEST_MAP_LOADED")
         else
-            -- 2. 일반 랜덤 맵 생성
-            map = DungeonGen.generate(MAP_WIDTH, MAP_HEIGHT)
-            player.x, player.y = 2, 2
-            player.facing = "north"
+            -- 2. 챕터별 고정 맵 우선 로드 (없으면 랜덤)
+            -- ch1,2 → data_map_ch1, ch3 → data_map_ch2(lab) 등 테마와 맞춤
+            local map_ch = ch <= 2 and 1 or (ch - 1)
+            local map_module = "data.data_map_ch" .. map_ch
+            local ok, map_data = pcall(require, map_module)
+            if ok and map_data then
+                map = {}
+                for y, row in ipairs(map_data.layout) do
+                    map[y] = {}
+                    for x, val in ipairs(row) do map[y][x] = val end
+                end
+                player.x = map_data.start_x or 2
+                player.y = map_data.start_y or 2
+                player.facing = "north"
+                print("E2E_HOOK: FIXED_MAP_LOADED:ch" .. map_ch)
+            else
+                -- 챕터 맵 파일 없으면 랜덤 생성
+                map = DungeonGen.generate(MAP_WIDTH, MAP_HEIGHT)
+                player.x, player.y = 2, 2
+                player.facing = "north"
+            end
         end
 
         -- 보스 퀘스트 배치 (E2E일 땐 강제 좌표 지정)
@@ -84,11 +130,19 @@ function StateExplore.load(force_reset)
         "deadend_left", "deadend_right", "deadend_sides"
     }
     for _, vt in ipairs(view_types) do
-        local path = "assets/images/map/sector_07_" .. vt .. ".png"
-        bg_images[vt] = AssetManager.loadImage("sector_07_"..vt, path)
+        -- 챕터 테마 폴더 우선, 없으면 sector_07 원본으로 폴백
+        local key  = theme.folder .. "_" .. vt
+        local path = "assets/images/map/" .. theme.folder .. "/" .. vt .. ".png"
+        local img  = AssetManager.loadImage(key, path)
+        if not img then
+            img = AssetManager.loadImage("sector_07_" .. vt, "assets/images/map/sector_07_" .. vt .. ".png")
+        end
+        bg_images[vt] = img
     end
     interaction_msg = ""
-    AudioManager.playBGM("bgm_explore", "assets/audio/bgm/bgm_explore.wav")
+    loaded_chapter  = ch
+    AudioManager.playBGM(theme.bgm, "assets/audio/bgm/" .. theme.bgm .. ".wav")
+    print("E2E_HOOK: THEME_LOADED:" .. theme.folder)
 end
 
 function StateExplore.update(dt)
@@ -141,6 +195,7 @@ function StateExplore.draw()
         deadend_left  = "wall_deadend",
         deadend_right = "wall_deadend",
         deadend_sides = "wall_deadend",
+        gate          = "wall_deadend",  -- 출구 전용 에셋 없으면 막힌 벽으로 폴백
     }
     local bg = bg_images[view_type] or bg_images[FALLBACK[view_type]] or bg_images["hall_long"]
     if bg then
@@ -155,7 +210,38 @@ function StateExplore.draw()
             love.graphics.draw(enemy_img, 640, 360, 0, 500/enemy_img:getHeight(), 500/enemy_img:getHeight(), enemy_img:getWidth()/2, enemy_img:getHeight()/2)
         end
     end
+
     love.graphics.pop()
+
+    -- 출구 전용 오버레이 (pop 이후 → 카메라 흔들림 없이 고정)
+    if tile_f == 4 then
+        local UI = require("ui.theme")
+        local t = love.timer.getTime()
+        love.graphics.setColor(0, 1, 0.5, 0.12 + math.sin(t * 2) * 0.06)
+        love.graphics.rectangle("fill", 0, 0, 1280, 720)
+        love.graphics.setColor(0, 1, 0.5, 0.9)
+        love.graphics.setFont(UI.font_large)
+        love.graphics.printf("[ HUB RETURN POINT ]", 0, 290, 1280, "center")
+        love.graphics.setFont(UI.font_normal)
+        love.graphics.setColor(1, 1, 1, 0.8)
+        love.graphics.printf("[SPACE] " .. L("hub_title") .. " 귀환", 0, 335, 1280, "center")
+    end
+
+    -- 현재 타일 힌트 (카메라 흔들림 영향 없도록 pop 이후 렌더)
+    local cur_tile = map[player.y] and map[player.y][player.x] or 0
+    if cur_tile == 2 or cur_tile == 4 then
+        local UI = require("ui.theme")
+        local col = cur_tile == 2 and {1, 0.2, 0.2} or {0, 1, 0.5}
+        local hint = cur_tile == 2
+            and (L("exp_enemy_detected") .. "   [SPACE] 교전 시작")
+            or  ("[SPACE] " .. L("hub_title") .. " 귀환")
+        love.graphics.setColor(0, 0, 0, 0.55)
+        love.graphics.rectangle("fill", 0, 668, 1280, 52)
+        love.graphics.setColor(col[1], col[2], col[3], 0.9)
+        love.graphics.setFont(UI.font_normal)
+        love.graphics.printf(hint, 0, 682, 1280, "center")
+    end
+
     UIExplore.draw(map, player, blink_alpha, interaction_msg)
 end
 

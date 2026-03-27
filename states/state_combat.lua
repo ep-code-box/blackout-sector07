@@ -16,6 +16,18 @@ local party_actors = {}
 local enemy_actor  = nil
 local enemy_sprite, bg_image
 local selected_menu, current_turn = 1, 1
+
+-- 죽은 파티원을 건너뛰어 첫 번째 살아있는 액터로 이동.
+-- current_turn을 직접 수정하며, 전멸 시 false 반환.
+local function advanceToAliveActor()
+    while current_turn <= #party_actors do
+        local c = party_actors[current_turn]
+        if c and c.hp > 0 then return true end
+        print("E2E_HOOK: DEAD_ACTOR_SKIPPED:" .. (c and c.id or "?"))
+        current_turn = current_turn + 1
+    end
+    return false  -- 살아있는 파티원 없음
+end
 local log_msg = ""
 local is_battle_over = false
 local battle_result = nil
@@ -42,6 +54,8 @@ function StateCombat.load(enemy_id, level)
     current_turn, selected_menu = 1, 1
     is_battle_over, battle_result = false, nil
     combat_timer, shake_timer, flash_alpha = 0, 0, 0
+    UICombat.reset()
+    advanceToAliveActor()  -- 로드 직후 죽은 파티원 스킵
     shack:setDimensions(1280, 720)
     log_msg = string.format(L("log_encounter"), enemy_actor.name:upper())
 
@@ -93,16 +107,25 @@ function StateCombat.keypressed(key)
 end
 
 function StateCombat.handlePlayerTurn(key)
-    local char = party_actors[current_turn]
-    if not char or char.hp <= 0 then current_turn = current_turn + 1; return end
+    if not advanceToAliveActor() then
+        StateCombat.setBattleOver("wipe"); return
+    end
 
+    local char = party_actors[current_turn]
     local skills = char.skills or {"skill_attack"}
-    if key == "up" then selected_menu = (selected_menu - 2) % #skills + 1
-    elseif key == "down" then selected_menu = selected_menu % #skills + 1
+    if key == "up" then
+        selected_menu = (selected_menu - 2) % #skills + 1
+    elseif key == "down" then
+        selected_menu = selected_menu % #skills + 1
     elseif key == "return" or key == "space" then
         log_msg = SkillHandler.execute(char, enemy_actor, skills[selected_menu], SkillsDB, party_actors, enemy_actor, StateCombat)
-        if enemy_actor.hp <= 0 then StateCombat.setBattleOver("win")
-        else current_turn, selected_menu = current_turn + 1, 1 end
+        if enemy_actor.hp <= 0 then
+            StateCombat.setBattleOver("win")
+        else
+            current_turn = current_turn + 1
+            selected_menu = 1
+            advanceToAliveActor()  -- 다음 파티원이 죽어있으면 즉시 스킵
+        end
     end
 end
 
@@ -116,6 +139,7 @@ function StateCombat.handleEnemyTurn()
     if not still_alive then StateCombat.setBattleOver("wipe")
     else
         current_turn = 1
+        advanceToAliveActor()  -- 적 턴 후 첫 살아있는 파티원으로 즉시 이동
         for _, p in ipairs(party_actors) do
             p:updateStatus()
             if p.hp > 0 and p.data.perks and p.data.perks["perk_int_20"] then

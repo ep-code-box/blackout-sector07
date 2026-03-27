@@ -5,6 +5,7 @@ local StoryManager = {}
 -- [추가] 런타임 스토리 상태 (data_story.lua 대체)
 StoryManager.current_chapter = 1
 StoryManager.world_flags = {}
+StoryManager.shown_chapter_ids = {}  -- 이미 재생한 챕터 ID 기록 (hub_load 중복 방지)
 StoryManager.endings = {
     hope = {
         title = "ending_hope_title",
@@ -36,11 +37,11 @@ function StoryManager.triggerChapter(trigger_type, trigger_id)
     local DB   = require("systems.db_manager")
     local json = require("lib.json")
 
-    local chapter = DB.getChapterByTrigger(trigger_type, trigger_id or "")
+    local chapter = DB.getChapterByTrigger(trigger_type, trigger_id or "", StoryManager.shown_chapter_ids)
     if not chapter then return false end
 
-    -- 이미 진행한 챕터면 스킵 (chapter_order 기반)
-    if chapter.chapter_order < StoryManager.current_chapter then return false end
+    -- 이미 진행한 챕터면 스킵 (chapter_order 기반, 단 hub_load는 shown_chapter_ids로만 관리)
+    if trigger_type ~= "hub_load" and chapter.chapter_order < StoryManager.current_chapter then return false end
 
     -- DB에서 이벤트 로드 → story_manager 형식으로 변환
     local raw_events = DB.getChapterEvents(chapter.id)
@@ -71,8 +72,29 @@ function StoryManager.triggerChapter(trigger_type, trigger_id)
         table.insert(events, entry)
     end
 
+    StoryManager.shown_chapter_ids[chapter.id] = true
+
+    -- boss_kill 전환 시 챕터 알림 이벤트 선두 삽입 (플레이어가 이유를 알 수 있도록)
+    if trigger_type == "boss_kill" then
+        table.insert(events, 1, {
+            speaker = "system",
+            portrait = "ui_frame_holo",
+            side     = "left",
+            text     = "[ CHAPTER " .. chapter.chapter_order .. " ]\n" .. (L(chapter.title) or chapter.title),
+            flash    = true,
+            flash_color = {0, 0.5, 1, 0.8},
+            shake    = false,
+        })
+    end
+
     StoryManager.start(events)
-    StoryManager.current_chapter = chapter.chapter_order + 1
+
+    -- hub_load 타입은 Director 직조 챕터 → current_chapter에 영향 주지 않음
+    if trigger_type ~= "hub_load" then
+        StoryManager.current_chapter = chapter.chapter_order + 1
+        -- 챕터 전환 시 탐험 맵 강제 리셋 (테마/BGM 변경 반영)
+        StoryManager.pending_explore_reset = true
+    end
     return true
 end
 

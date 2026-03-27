@@ -9,7 +9,7 @@ class SecureHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
 
 os.chdir('make/web_build')
-PORT = 8080
+PORT = 8090
 with socketserver.TCPServer(("", PORT), SecureHTTPRequestHandler) as httpd:
     print(f"Serving at port {PORT} with COOP/COEP headers for SharedArrayBuffer...")
     httpd.serve_forever()
